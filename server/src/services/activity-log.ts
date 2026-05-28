@@ -62,6 +62,60 @@ export interface LogActivityInput {
   details?: Record<string, unknown> | null;
 }
 
+export interface LogIssueStatusChangeInput {
+  companyId: string;
+  actorType: "agent" | "user" | "system" | "plugin";
+  actorId: string;
+  agentId?: string | null;
+  runId?: string | null;
+  issueId: string;
+  identifier?: string | null;
+  fromStatus: string | null;
+  toStatus: string;
+  reason?: string | null;
+  source?: string | null;
+  extra?: Record<string, unknown> | null;
+}
+
+/**
+ * Emit a canonical `issue.status_changed` activity event whenever an
+ * issue's status actually transitions. Skips emission when fromStatus === toStatus
+ * so callers can invoke this unconditionally after a write.
+ *
+ * Returns true when an event was emitted (status actually changed), false otherwise.
+ */
+export async function logIssueStatusChange(
+  db: Db,
+  input: LogIssueStatusChangeInput,
+): Promise<boolean> {
+  if (input.fromStatus === input.toStatus) return false;
+  const details: Record<string, unknown> = {
+    fromStatus: input.fromStatus,
+    toStatus: input.toStatus,
+    transitionedAt: new Date().toISOString(),
+  };
+  if (input.identifier) details.identifier = input.identifier;
+  if (input.reason) details.reason = input.reason;
+  if (input.source) details.source = input.source;
+  if (input.extra) {
+    for (const [key, value] of Object.entries(input.extra)) {
+      if (!(key in details)) details[key] = value;
+    }
+  }
+  await logActivity(db, {
+    companyId: input.companyId,
+    actorType: input.actorType,
+    actorId: input.actorId,
+    agentId: input.agentId ?? null,
+    runId: input.runId ?? null,
+    action: "issue.status_changed",
+    entityType: "issue",
+    entityId: input.issueId,
+    details,
+  });
+  return true;
+}
+
 export async function logActivity(db: Db, input: LogActivityInput) {
   const currentUserRedactionOptions = {
     enabled: (await instanceSettingsService(db).getGeneral()).censorUsernameInLogs,
