@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
+import { logIssueStatusChange } from "./activity-log.js";
 import {
   activityLog,
   agentWakeupRequests,
@@ -4589,7 +4590,32 @@ export function issueService(db: Db) {
         return enriched;
       };
 
-      return dbOrTx === db ? db.transaction(runUpdate) : runUpdate(dbOrTx);
+      const updateResult: Awaited<ReturnType<typeof runUpdate>> =
+        dbOrTx === db ? await db.transaction(runUpdate) : await runUpdate(dbOrTx);
+      if (
+        updateResult &&
+        typeof issueData.status === "string" &&
+        existing.status !== updateResult.status
+      ) {
+        await logIssueStatusChange(db, {
+          companyId: existing.companyId,
+          actorType: actorAgentId ? "agent" : actorUserId ? "user" : "system",
+          actorId: actorAgentId ?? actorUserId ?? "issue_service",
+          agentId: actorAgentId ?? null,
+          runId: null,
+          issueId: existing.id,
+          identifier: updateResult.identifier,
+          fromStatus: existing.status,
+          toStatus: updateResult.status,
+          source: "issue_service.update",
+        }).catch((err) => {
+          logger.warn(
+            { err, issueId: existing.id, fromStatus: existing.status, toStatus: updateResult.status },
+            "failed to record issue.status_changed activity from issue_service.update",
+          );
+        });
+      }
+      return updateResult;
     },
 
     clearExecutionWorkspaceEnvironmentSelection: async (companyId: string, environmentId: string) => {
@@ -4658,11 +4684,12 @@ export function issueService(db: Db) {
 
     checkout: async (id: string, agentId: string, expectedStatuses: string[], checkoutRunId: string | null) => {
       const issueCompany = await db
-        .select({ companyId: issues.companyId })
+        .select({ companyId: issues.companyId, status: issues.status })
         .from(issues)
         .where(eq(issues.id, id))
         .then((rows) => rows[0] ?? null);
       if (!issueCompany) throw notFound("Issue not found");
+      const previousStatus = issueCompany.status;
       await assertAssignableAgent(issueCompany.companyId, agentId);
 
       const now = new Date();
@@ -4721,6 +4748,25 @@ export function issueService(db: Db) {
 
       if (updated) {
         const [enriched] = await withIssueLabels(db, [updated]);
+        if (previousStatus !== enriched.status) {
+          await logIssueStatusChange(db, {
+            companyId: issueCompany.companyId,
+            actorType: "agent",
+            actorId: agentId,
+            agentId,
+            runId: checkoutRunId,
+            issueId: id,
+            identifier: enriched.identifier,
+            fromStatus: previousStatus,
+            toStatus: enriched.status,
+            source: "issue_service.checkout",
+          }).catch((err) => {
+            logger.warn(
+              { err, issueId: id, fromStatus: previousStatus, toStatus: enriched.status },
+              "failed to record issue.status_changed activity from issue_service.checkout",
+            );
+          });
+        }
         return enriched;
       }
 
@@ -4932,6 +4978,25 @@ export function issueService(db: Db) {
         .then((rows) => rows[0] ?? null);
       if (!updated) return null;
       const [enriched] = await withIssueLabels(db, [updated]);
+      if (existing.status !== enriched.status) {
+        await logIssueStatusChange(db, {
+          companyId: existing.companyId,
+          actorType: actorAgentId ? "agent" : "system",
+          actorId: actorAgentId ?? "issue_service",
+          agentId: actorAgentId ?? null,
+          runId: actorRunId ?? null,
+          issueId: existing.id,
+          identifier: enriched.identifier,
+          fromStatus: existing.status,
+          toStatus: enriched.status,
+          source: "issue_service.release",
+        }).catch((err) => {
+          logger.warn(
+            { err, issueId: existing.id, fromStatus: existing.status, toStatus: enriched.status },
+            "failed to record issue.status_changed activity from issue_service.release",
+          );
+        });
+      }
       return enriched;
     },
 

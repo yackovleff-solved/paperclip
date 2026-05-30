@@ -2644,6 +2644,208 @@ describeEmbeddedPostgres("issueService blockers and dependency wake readiness", 
   });
 });
 
+describeEmbeddedPostgres("issueService status-change activity logging", () => {
+  let db!: ReturnType<typeof createDb>;
+  let svc!: ReturnType<typeof issueService>;
+  let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+
+  beforeAll(async () => {
+    tempDb = await startEmbeddedPostgresTestDatabase("paperclip-issues-status-activity-");
+    db = createDb(tempDb.connectionString);
+    svc = issueService(db);
+    await ensureIssueRelationsTable(db);
+  }, 20_000);
+
+  afterEach(async () => {
+    await db.delete(issueComments);
+    await db.delete(issueRelations);
+    await db.delete(issueInboxArchives);
+    await db.delete(activityLog);
+    await db.delete(issues);
+    await db.delete(heartbeatRuns);
+    await db.delete(executionWorkspaces);
+    await db.delete(projectWorkspaces);
+    await db.delete(projects);
+    await db.delete(agents);
+    await db.delete(instanceSettings);
+    await db.delete(companies);
+  });
+
+  afterAll(async () => {
+    await tempDb?.cleanup();
+  });
+
+  async function setupCompanyWithAgent() {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Engineer",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    return { companyId, agentId };
+  }
+
+  async function fetchStatusChangeEvents(issueId: string) {
+    return db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, issueId))
+      .then((rows) =>
+        rows
+          .filter((row) => row.action === "issue.status_changed")
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+      );
+  }
+
+  it("emits issue.status_changed on svc.update when status actually changes", async () => {
+    const { companyId, agentId } = await setupCompanyWithAgent();
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Status-change issue",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    const updated = await svc.update(issueId, {
+      status: "in_progress",
+      actorAgentId: agentId,
+    });
+    expect(updated?.status).toBe("in_progress");
+
+    const events = await fetchStatusChangeEvents(issueId);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("issue.status_changed");
+    expect(events[0]?.actorType).toBe("agent");
+    expect(events[0]?.actorId).toBe(agentId);
+    expect(events[0]?.agentId).toBe(agentId);
+    expect(events[0]?.details).toMatchObject({
+      fromStatus: "todo",
+      toStatus: "in_progress",
+      source: "issue_service.update",
+    });
+    expect(typeof (events[0]?.details as Record<string, unknown>)?.transitionedAt).toBe("string");
+    expect(events[0]?.createdAt.toISOString()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("does not emit issue.status_changed when svc.update is called without a status change", async () => {
+    const { companyId, agentId } = await setupCompanyWithAgent();
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "No-op issue",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    await svc.update(issueId, { priority: "high", actorAgentId: agentId });
+    expect(await fetchStatusChangeEvents(issueId)).toHaveLength(0);
+
+    // Setting the same status should also not emit.
+    await svc.update(issueId, { status: "todo", actorAgentId: agentId });
+    expect(await fetchStatusChangeEvents(issueId)).toHaveLength(0);
+  });
+
+  it("emits issue.status_changed on svc.checkout when the issue moves into in_progress", async () => {
+    const { companyId, agentId } = await setupCompanyWithAgent();
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Checkout issue",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    await svc.checkout(issueId, agentId, ["todo", "backlog", "blocked"], null);
+
+    const events = await fetchStatusChangeEvents(issueId);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("issue.status_changed");
+    expect(events[0]?.agentId).toBe(agentId);
+    expect(events[0]?.details).toMatchObject({
+      fromStatus: "todo",
+      toStatus: "in_progress",
+      source: "issue_service.checkout",
+    });
+  });
+
+  it("emits issue.status_changed on svc.release when the issue is returned to todo", async () => {
+    const { companyId, agentId } = await setupCompanyWithAgent();
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Release issue",
+      status: "in_progress",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    const released = await svc.release(issueId, agentId, null);
+    expect(released?.status).toBe("todo");
+
+    const events = await fetchStatusChangeEvents(issueId);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("issue.status_changed");
+    expect(events[0]?.agentId).toBe(agentId);
+    expect(events[0]?.details).toMatchObject({
+      fromStatus: "in_progress",
+      toStatus: "todo",
+      source: "issue_service.release",
+    });
+  });
+
+  it("captures the full transition timeline for a sample issue", async () => {
+    const { companyId, agentId } = await setupCompanyWithAgent();
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Lifecycle issue",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    await svc.checkout(issueId, agentId, ["todo", "backlog", "blocked"], null);
+    await svc.update(issueId, { status: "in_review", actorAgentId: agentId });
+    await svc.update(issueId, { status: "done", actorAgentId: agentId });
+
+    const events = await fetchStatusChangeEvents(issueId);
+    const transitions = events.map((row) => {
+      const details = row.details as Record<string, unknown>;
+      return { fromStatus: details.fromStatus, toStatus: details.toStatus };
+    });
+    expect(transitions).toEqual([
+      { fromStatus: "todo", toStatus: "in_progress" },
+      { fromStatus: "in_progress", toStatus: "in_review" },
+      { fromStatus: "in_review", toStatus: "done" },
+    ]);
+    for (const row of events) {
+      expect(row.createdAt.toISOString()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    }
+  });
+});
+
 describeEmbeddedPostgres("issueService.create workspace inheritance", () => {
   let db!: ReturnType<typeof createDb>;
   let svc!: ReturnType<typeof issueService>;
