@@ -275,12 +275,28 @@ export type AdapterSkillState =
   | "installed"
   | "missing"
   | "stale"
-  | "external";
+  | "external"
+  /**
+   * ASI09/SOL-3191 (layer-b Step 1, default-OFF behind
+   * PAPERCLIP_SKILL_SIGNATURE_ENFORCE). A company_managed root that failed
+   * cosign signature verification while enforcement was on — Paperclip
+   * refused to materialize/symlink it. Never used for bundled or
+   * user_installed skills, and never used at all with the flag off.
+   */
+  | "blocked_unsigned";
 
 export type AdapterSkillOrigin =
   | "company_managed"
   | "user_installed"
   | "external_unknown";
+
+/**
+ * Telemetry-only (ASI09 / SOL-3190, layer-b Step 0) read of whether a
+ * company-managed skill root's signed manifest (`scripts/skills-sign/`,
+ * SOL-3186) verified cleanly. Nothing in the loader enforces this yet —
+ * see AdapterSkillEntry.signatureState doc below.
+ */
+export type AdapterSkillSignatureState = "verified" | "invalid" | "unavailable" | "unchecked";
 
 export interface AdapterSkillEntry {
   key: string;
@@ -297,6 +313,16 @@ export interface AdapterSkillEntry {
   sourcePath?: string | null;
   targetPath?: string | null;
   detail?: string | null;
+  /**
+   * Best-effort cosign signature-verification state for this entry's
+   * source root, when it resolves to a signed company-managed skills tree.
+   * `"unchecked"` means no verification has run yet in this process (or the
+   * root isn't signed at all, e.g. bundled/user-installed skills) — this is
+   * telemetry only (ASI09 layer-b Step 0, SOL-3190) and never blocks
+   * materialization or symlinking.
+   */
+  signatureState?: AdapterSkillSignatureState;
+  signatureDetail?: string | null;
 }
 
 export interface AdapterSkillSnapshot {
