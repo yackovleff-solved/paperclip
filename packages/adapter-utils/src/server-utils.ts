@@ -12,6 +12,7 @@ import { buildSshSpawnTarget, type SshRemoteExecutionSpec } from "./ssh.js";
 import { redactCommandText } from "./command-redaction.js";
 import type {
   AdapterSkillEntry,
+  AdapterSkillSignatureState,
   AdapterSkillSnapshot,
 } from "./types.js";
 
@@ -135,6 +136,21 @@ const PAPERCLIP_SKILL_ROOT_RELATIVE_CANDIDATES = [
 const MATERIALIZED_SKILL_SENTINEL = ".paperclip-materialized-skill.json";
 const MATERIALIZED_SKILL_LOCK_OWNER = "owner.json";
 const MATERIALIZED_SKILL_LOCK_STALE_MS = 30_000;
+
+// ASI09 / SOL-3190 (layer-b Step 0, telemetry-only) — best-effort signature
+// verification for company-managed skill roots (solved-org/skills/*, SOL-3186).
+// Shells out to the verify script this repo does NOT own (scripts/skills-sign/
+// lives in the company-managed skills repo, one level above the signed
+// `.signatures/` root — see SKILL_SIGNATURE_VERIFY_SCRIPT_RELATIVE below).
+const SKILL_SIGNATURE_MANIFEST_RELATIVE = path.join(".signatures", "MANIFEST.sha256");
+const SKILL_SIGNATURE_BUNDLE_RELATIVE = path.join(".signatures", "MANIFEST.sha256.cosign.bundle");
+const SKILL_SIGNATURE_VERIFY_SCRIPT_RELATIVE = path.join("scripts", "skills-sign", "verify.sh");
+const SKILL_SIGNATURE_VERIFY_TIMEOUT_MS = 20_000;
+// Deliberately outside any skill source tree: hashSkillDirectory() below
+// hashes everything under its root, so a cache file living inside the
+// managed root (e.g. under `.signatures/`) would invalidate itself on
+// every write and defeat the cache.
+const SKILL_SIGNATURE_VERIFY_CACHE_DIR = path.join(os.tmpdir(), "paperclip-skill-signature-cache");
 
 function expandHomePrefix(value: string): string {
   if (value === "~") return os.homedir();
@@ -2715,6 +2731,23 @@ export function buildRuntimeMountedSkillSnapshot(
   };
 }
 
+/**
+ * ASI09 / SOL-3190 (layer-b Step 0) — read-only telemetry: surfaces the
+ * last cosign signature-verification result observed for this entry's
+ * source root (populated opportunistically whenever materializePaperclipSkillCopy
+ * or ensurePaperclipSkillSymlink ran for a sibling skill under the same
+ * managed root; a fresh process with no prior sync reports "unchecked").
+ */
+function resolveSkillSignatureTelemetry(
+  sourcePath: string | null,
+): Pick<AdapterSkillEntry, "signatureState" | "signatureDetail"> {
+  if (!sourcePath) return { signatureState: "unchecked", signatureDetail: null };
+  const managedRoot = path.dirname(path.resolve(sourcePath));
+  const verification = getLastSkillSignatureVerification(managedRoot);
+  if (!verification) return { signatureState: "unchecked", signatureDetail: null };
+  return { signatureState: verification.state, signatureDetail: verification.detail };
+}
+
 export function buildPersistentSkillSnapshot(
   options: PersistentSkillSnapshotOptions,
 ): AdapterSkillSnapshot {
@@ -2786,6 +2819,7 @@ export function buildPersistentSkillSnapshot(
       targetPath: path.join(skillsHome, available.runtimeName),
       detail,
       ...buildManagedSkillOrigin(),
+      ...resolveSkillSignatureTelemetry(available.source),
     });
   }
 
@@ -3013,6 +3047,8 @@ export async function ensurePaperclipSkillSymlink(
   linkSkill: (source: string, target: string) => Promise<void> = (linkSource, linkTarget) =>
     fs.symlink(linkSource, linkTarget),
 ): Promise<"created" | "repaired" | "skipped"> {
+  await checkCompanyManagedSkillSignatureBestEffort(source);
+
   const existing = await fs.lstat(target).catch(() => null);
   if (!existing) {
     await linkSkill(source, target);
@@ -3071,6 +3107,271 @@ async function hashSkillDirectory(root: string): Promise<string> {
 
   await visit(root, "");
   return hash.digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// ASI09 / SOL-3190 — company-managed skill signature telemetry (layer-b Step 0)
+// ---------------------------------------------------------------------------
+
+export interface SkillSignatureVerification {
+  state: AdapterSkillSignatureState;
+  managedRoot: string;
+  detail: string;
+  checkedAt: string;
+  cached: boolean;
+}
+
+// Note: the module's existing `pathExists()` checks X_OK (executability),
+// which is right for scriptPath (spawned directly) but wrong for the
+// manifest/bundle data files below — they're never executable.
+async function skillSignatureDataFileExists(candidate: string): Promise<boolean> {
+  return fs.stat(candidate).then((stat) => stat.isFile()).catch(() => false);
+}
+
+function skillSignatureVerifyCacheFilePath(managedRoot: string): string {
+  const key = createHash("sha256").update(managedRoot).digest("hex");
+  return path.join(SKILL_SIGNATURE_VERIFY_CACHE_DIR, `${key}.json`);
+}
+
+async function readSkillSignatureVerifyCache(
+  managedRoot: string,
+  sourceFingerprint: string,
+): Promise<SkillSignatureVerification | null> {
+  try {
+    const raw = JSON.parse(await fs.readFile(skillSignatureVerifyCacheFilePath(managedRoot), "utf8")) as unknown;
+    const parsed = parseObject(raw);
+    if (parsed.version !== 1 || parsed.sourceFingerprint !== sourceFingerprint) return null;
+    const result = parseObject(parsed.result);
+    const state = result.state;
+    if (
+      (state !== "verified" && state !== "invalid" && state !== "unavailable") ||
+      typeof result.detail !== "string" ||
+      typeof result.checkedAt !== "string"
+    ) {
+      return null;
+    }
+    return { state, managedRoot, detail: result.detail, checkedAt: result.checkedAt, cached: true };
+  } catch {
+    return null;
+  }
+}
+
+async function writeSkillSignatureVerifyCache(
+  managedRoot: string,
+  sourceFingerprint: string,
+  result: SkillSignatureVerification,
+): Promise<void> {
+  try {
+    await fs.mkdir(SKILL_SIGNATURE_VERIFY_CACHE_DIR, { recursive: true });
+    await fs.writeFile(
+      skillSignatureVerifyCacheFilePath(managedRoot),
+      `${JSON.stringify(
+        {
+          version: 1,
+          sourceFingerprint,
+          result: { state: result.state, detail: result.detail, checkedAt: result.checkedAt },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  } catch {
+    // Best-effort — a cache write failure must never affect skill loading.
+  }
+}
+
+function runSkillSignatureVerifyScript(scriptPath: string, managedRoot: string): Promise<{ code: number | null; stderr: string }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stderr = "";
+    let child: ChildProcess;
+    try {
+      child = spawn(scriptPath, [managedRoot], { stdio: ["ignore", "ignore", "pipe"] });
+    } catch (err) {
+      resolve({ code: null, stderr: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      resolve({ code: null, stderr: `${stderr}\nverify.sh timed out after ${SKILL_SIGNATURE_VERIFY_TIMEOUT_MS}ms` });
+    }, SKILL_SIGNATURE_VERIFY_TIMEOUT_MS);
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code: null, stderr: `${stderr}\n${err instanceof Error ? err.message : String(err)}` });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, stderr });
+    });
+  });
+}
+
+function classifySkillSignatureFailure(stderr: string): AdapterSkillSignatureState {
+  if (/drifted from signed manifest|signature verification failed/i.test(stderr)) return "invalid";
+  return "unavailable";
+}
+
+async function performSkillSignatureVerification(
+  managedRoot: string,
+  scriptPath: string,
+): Promise<SkillSignatureVerification> {
+  const checkedAt = new Date().toISOString();
+  const { code, stderr } = await runSkillSignatureVerifyScript(scriptPath, managedRoot);
+  if (code === 0) {
+    return {
+      state: "verified",
+      managedRoot,
+      detail: "cosign verify-blob OK against signed manifest.",
+      checkedAt,
+      cached: false,
+    };
+  }
+  const state = classifySkillSignatureFailure(stderr);
+  const detail = extractSkillSignatureFailureDetail(stderr, code);
+  return { state, managedRoot, detail, checkedAt, cached: false };
+}
+
+// verify.sh's fail() helper always echoes the specific reason first, then a
+// generic "fail-closed — treating ... as UNTRUSTED" line before exiting — so
+// the *last* stderr line is the least informative one. Prefer the explicit
+// "verify.sh: FAIL: ..." line when present.
+function extractSkillSignatureFailureDetail(stderr: string, code: number | null): string {
+  const lines = stderr.trim().split("\n").filter(Boolean);
+  const failLine = lines.find((line) => line.includes("verify.sh: FAIL:"));
+  return failLine ?? lines.pop() ?? `verify.sh exited with code ${code ?? "null"}`;
+}
+
+const skillSignatureVerificationCache = new Map<string, Promise<SkillSignatureVerification>>();
+const lastSkillSignatureVerification = new Map<string, SkillSignatureVerification>();
+
+function logSkillSignatureVerification(verification: SkillSignatureVerification): void {
+  const message = `Paperclip skill-signature telemetry (ASI09/SOL-3190): ${verification.state} for managed root ${verification.managedRoot} — ${verification.detail}`;
+  if (verification.state === "invalid") {
+    console.warn(message);
+  } else {
+    console.info(message);
+  }
+}
+
+/**
+ * Best-effort, telemetry-only (layer-b Step 0, SOL-3190) cosign signature
+ * check for a company-managed skill's source root. Never throws and never
+ * blocks materialization/symlinking — callers should treat the result as
+ * informational only. Deduplicated per-process (skillSignatureVerificationCache)
+ * and persisted to disk keyed by a full-tree fingerprint of the managed root
+ * (skillSignatureVerifyCacheFilePath) so a `cosign verify-blob` network call
+ * only happens once per changed tree, not once per skill / per agent-run.
+ *
+ * `source` is a single skill's directory (e.g. `solved-org/skills/<name>`);
+ * the signed root this verifies is its parent (`solved-org/skills`), because
+ * the manifest/signature (SOL-3186) covers that whole tree, not per-skill.
+ */
+export async function verifyCompanyManagedSkillSignature(source: string): Promise<SkillSignatureVerification> {
+  const resolvedSource = path.resolve(source);
+  const managedRoot = path.dirname(resolvedSource);
+
+  const inflight = skillSignatureVerificationCache.get(managedRoot);
+  if (inflight) return inflight;
+
+  const promise = (async (): Promise<SkillSignatureVerification> => {
+    const checkedAt = new Date().toISOString();
+    const manifestPath = path.join(managedRoot, SKILL_SIGNATURE_MANIFEST_RELATIVE);
+    const bundlePath = path.join(managedRoot, SKILL_SIGNATURE_BUNDLE_RELATIVE);
+    const scriptPath = path.join(path.dirname(managedRoot), SKILL_SIGNATURE_VERIFY_SCRIPT_RELATIVE);
+
+    const [hasManifest, hasBundle, hasScript] = await Promise.all([
+      skillSignatureDataFileExists(manifestPath),
+      skillSignatureDataFileExists(bundlePath),
+      pathExists(scriptPath),
+    ]);
+    if (!hasManifest || !hasBundle || !hasScript) {
+      // Expected for non-signed roots (bundled Paperclip skills, ad-hoc
+      // user_installed skills) — not logged, this is the common case.
+      return {
+        state: "unavailable",
+        managedRoot,
+        detail: hasScript
+          ? `signed manifest/bundle not found under ${path.join(managedRoot, ".signatures")}`
+          : `verify script not found at ${scriptPath}`,
+        checkedAt,
+        cached: false,
+      };
+    }
+
+    let sourceFingerprint: string;
+    try {
+      sourceFingerprint = await hashSkillDirectory(managedRoot);
+    } catch (err) {
+      const result: SkillSignatureVerification = {
+        state: "unavailable",
+        managedRoot,
+        detail: `failed to fingerprint managed skills root: ${err instanceof Error ? err.message : String(err)}`,
+        checkedAt,
+        cached: false,
+      };
+      logSkillSignatureVerification(result);
+      return result;
+    }
+
+    const cachedResult = await readSkillSignatureVerifyCache(managedRoot, sourceFingerprint);
+    if (cachedResult) {
+      logSkillSignatureVerification(cachedResult);
+      return cachedResult;
+    }
+
+    const result = await performSkillSignatureVerification(managedRoot, scriptPath);
+    logSkillSignatureVerification(result);
+    await writeSkillSignatureVerifyCache(managedRoot, sourceFingerprint, result);
+    return result;
+  })().then((result) => {
+    lastSkillSignatureVerification.set(managedRoot, result);
+    return result;
+  });
+
+  skillSignatureVerificationCache.set(managedRoot, promise);
+  return promise;
+}
+
+/** Synchronous, non-blocking read of the last verification result for a managed root (if any ran yet this process). */
+export function getLastSkillSignatureVerification(managedRoot: string): SkillSignatureVerification | null {
+  return lastSkillSignatureVerification.get(path.resolve(managedRoot)) ?? null;
+}
+
+/**
+ * Test-only seam: clears the per-process in-memory memoization so a test can
+ * simulate a fresh process re-reading the on-disk fingerprint cache (the
+ * persisted half of the cache-hit contract) instead of the trivially-true
+ * same-process dedupe. Not for production use.
+ */
+export function __resetSkillSignatureVerificationCacheForTests(): void {
+  skillSignatureVerificationCache.clear();
+  lastSkillSignatureVerification.clear();
+}
+
+/**
+ * Wraps verifyCompanyManagedSkillSignature() for call sites that must never
+ * fail or slow down on its account (materializePaperclipSkillCopy,
+ * ensurePaperclipSkillSymlink) — telemetry-only, so any unexpected error
+ * here is swallowed and logged rather than propagated.
+ */
+async function checkCompanyManagedSkillSignatureBestEffort(source: string): Promise<void> {
+  try {
+    await verifyCompanyManagedSkillSignature(source);
+  } catch (err) {
+    console.warn(
+      `Paperclip skill-signature telemetry (ASI09/SOL-3190) check threw for ${source}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 async function materializedSkillFingerprintMatches(targetRoot: string, sourceFingerprint: string): Promise<boolean> {
@@ -3163,6 +3464,8 @@ export async function materializePaperclipSkillCopy(
   if (!rootStat.isDirectory()) {
     throw new Error("Paperclip skills must be directories.");
   }
+
+  await checkCompanyManagedSkillSignatureBestEffort(sourceRoot);
 
   const result: MaterializedPaperclipSkillCopyResult = {
     copiedFiles: 0,

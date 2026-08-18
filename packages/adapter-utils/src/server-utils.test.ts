@@ -12,6 +12,8 @@ import {
   buildInvocationEnvForLogs,
   buildPaperclipEnv,
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
+  ensurePaperclipSkillSymlink,
+  getLastSkillSignatureVerification,
   materializePaperclipSkillCopy,
   refreshPaperclipWorkspaceEnvForExecution,
   renderPaperclipWakePrompt,
@@ -19,6 +21,8 @@ import {
   runningProcesses,
   runChildProcess,
   sanitizeSshRemoteEnv,
+  verifyCompanyManagedSkillSignature,
+  __resetSkillSignatureVerificationCacheForTests,
   signalRunningProcess,
   shapePaperclipWorkspaceEnvForExecution,
   rewriteWorkspaceCwdEnvVarsForExecution,
@@ -209,6 +213,214 @@ describe("materializePaperclipSkillCopy", () => {
       await expect(materializePaperclipSkillCopy(source, target)).resolves.toMatchObject({ copiedFiles: 1 });
       await expect(fs.readFile(path.join(target, "SKILL.md"), "utf8")).resolves.toBe("# skill\n");
     } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ASI09 / SOL-3190 — layer-b Step 0, telemetry-only company-managed skill
+// signature verification. These tests fake out `scripts/skills-sign/verify.sh`
+// (owned by solved-org, not this repo) with a small script that just counts
+// its own invocations, so the tests exercise this repo's shell-out + caching
+// contract without depending on cosign being installed.
+describe("verifyCompanyManagedSkillSignature", () => {
+  async function setupSignedSkillsRepo(
+    root: string,
+    verifyScript: { exitCode: number; stderrMessage?: string | string[] },
+  ): Promise<{ skillDir: string; counterPath: string }> {
+    const repoRoot = path.join(root, "repo");
+    const skillsRoot = path.join(repoRoot, "skills");
+    const skillDir = path.join(skillsRoot, "my-skill");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(path.join(skillDir, "SKILL.md"), "# skill\n", "utf8");
+
+    const signaturesDir = path.join(skillsRoot, ".signatures");
+    await fs.mkdir(signaturesDir, { recursive: true });
+    await fs.writeFile(path.join(signaturesDir, "MANIFEST.sha256"), "dummy-manifest\n", "utf8");
+    await fs.writeFile(path.join(signaturesDir, "MANIFEST.sha256.cosign.bundle"), "dummy-bundle\n", "utf8");
+
+    const scriptsDir = path.join(repoRoot, "scripts", "skills-sign");
+    await fs.mkdir(scriptsDir, { recursive: true });
+    const scriptPath = path.join(scriptsDir, "verify.sh");
+    const counterPath = path.join(root, "invocations.log");
+    const messages = verifyScript.stderrMessage
+      ? (Array.isArray(verifyScript.stderrMessage) ? verifyScript.stderrMessage : [verifyScript.stderrMessage])
+      : [];
+    const stderrLines = messages.map((message) => `echo ${JSON.stringify(message)} >&2\n`).join("");
+    await fs.writeFile(
+      scriptPath,
+      `#!/usr/bin/env bash\necho invoked >> ${JSON.stringify(counterPath)}\n${stderrLines}exit ${verifyScript.exitCode}\n`,
+      "utf8",
+    );
+    await fs.chmod(scriptPath, 0o755);
+
+    return { skillDir, counterPath };
+  }
+
+  async function countInvocations(counterPath: string): Promise<number> {
+    const content = await fs.readFile(counterPath, "utf8").catch(() => "");
+    return content.split("\n").filter((line) => line.trim().length > 0).length;
+  }
+
+  it("shells out once and reuses the on-disk fingerprint cache across process restarts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const { skillDir, counterPath } = await setupSignedSkillsRepo(root, { exitCode: 0 });
+
+      const first = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(first.state).toBe("verified");
+      expect(first.cached).toBe(false);
+      expect(await countInvocations(counterPath)).toBe(1);
+
+      // Simulate a fresh process: same tree, but no per-process memoization.
+      __resetSkillSignatureVerificationCacheForTests();
+
+      const second = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(second.state).toBe("verified");
+      expect(second.cached).toBe(true);
+      expect(await countInvocations(counterPath)).toBe(1);
+
+      // Tree drift changes the fingerprint — the cache must miss and re-verify.
+      await fs.appendFile(path.join(skillDir, "SKILL.md"), "more\n", "utf8");
+      __resetSkillSignatureVerificationCacheForTests();
+
+      const third = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(third.cached).toBe(false);
+      expect(await countInvocations(counterPath)).toBe(2);
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("dedupes concurrent calls within the same process", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const { skillDir, counterPath } = await setupSignedSkillsRepo(root, { exitCode: 0 });
+      const [a, b] = await Promise.all([
+        verifyCompanyManagedSkillSignature(skillDir),
+        verifyCompanyManagedSkillSignature(skillDir),
+      ]);
+      expect(a.state).toBe("verified");
+      expect(b.state).toBe("verified");
+      expect(await countInvocations(counterPath)).toBe(1);
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("classifies manifest drift / bad signature as invalid", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const { skillDir } = await setupSignedSkillsRepo(root, {
+        exitCode: 1,
+        stderrMessage: "verify.sh: FAIL: skills tree drifted from signed manifest — re-run scripts/skills-sign/sign.sh",
+      });
+      const result = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(result.state).toBe("invalid");
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers the specific FAIL reason over verify.sh's generic fail-closed trailer line", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const { skillDir } = await setupSignedSkillsRepo(root, {
+        exitCode: 1,
+        stderrMessage: [
+          "verify.sh: FAIL: cosign signature verification failed for /skills/.signatures/MANIFEST.sha256.cosign.bundle",
+          "verify.sh: fail-closed — treating skills tree at /skills as UNTRUSTED",
+        ],
+      });
+      const result = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(result.state).toBe("invalid");
+      expect(result.detail).toContain("cosign signature verification failed");
+      expect(result.detail).not.toContain("fail-closed");
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports unavailable, not invalid, when cosign is missing", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const { skillDir } = await setupSignedSkillsRepo(root, {
+        exitCode: 1,
+        stderrMessage: "verify.sh: FAIL: cosign not found on PATH",
+      });
+      const result = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(result.state).toBe("unavailable");
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports unavailable without shelling out when there is no signed manifest at all", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const skillDir = path.join(root, "unsigned-repo", "skills", "my-skill");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(path.join(skillDir, "SKILL.md"), "# skill\n", "utf8");
+
+      const result = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(result.state).toBe("unavailable");
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("never blocks materializePaperclipSkillCopy or ensurePaperclipSkillSymlink even when verification fails", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const { skillDir } = await setupSignedSkillsRepo(root, {
+        exitCode: 1,
+        stderrMessage: "verify.sh: FAIL: cosign signature verification failed for bundle",
+      });
+
+      const copyTarget = path.join(root, "copy-target");
+      await expect(materializePaperclipSkillCopy(skillDir, copyTarget)).resolves.toMatchObject({ copiedFiles: 1 });
+
+      const linkTarget = path.join(root, "link-target");
+      await expect(ensurePaperclipSkillSymlink(skillDir, linkTarget)).resolves.toBe("created");
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces the last verification result on buildPersistentSkillSnapshot entries", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+    try {
+      const { skillDir } = await setupSignedSkillsRepo(root, { exitCode: 0 });
+      const verification = await verifyCompanyManagedSkillSignature(skillDir);
+      expect(verification.state).toBe("verified");
+      expect(getLastSkillSignatureVerification(path.dirname(skillDir))?.state).toBe("verified");
+
+      const snapshot = buildPersistentSkillSnapshot({
+        adapterType: "cursor",
+        availableEntries: [{ key: "solved/my-skill", runtimeName: "my-skill", source: skillDir }],
+        desiredSkills: ["solved/my-skill"],
+        installed: new Map(),
+        skillsHome: path.join(root, ".cursor", "skills"),
+        missingDetail: "Configured but not linked.",
+        externalConflictDetail: "Name occupied externally.",
+        externalDetail: "Installed outside Paperclip management.",
+      });
+
+      expect(snapshot.entries).toContainEqual(
+        expect.objectContaining({
+          key: "solved/my-skill",
+          signatureState: "verified",
+        }),
+      );
+    } finally {
+      __resetSkillSignatureVerificationCacheForTests();
       await fs.rm(root, { recursive: true, force: true });
     }
   });
