@@ -63,6 +63,7 @@ export interface RunProcessResult {
   // duplex control channel died before a clean completion.
   errorCode?: string | null;
   terminalResultCleanup?: TerminalResultCleanupEvidence | null;
+  tokenCeilingCleanup?: TokenCeilingCleanupEvidence | null;
 }
 
 export interface TerminalResultCleanupOptions {
@@ -81,6 +82,32 @@ export interface TerminalResultCleanupEvidence {
   stopReason: typeof UNMANAGED_BACKGROUND_TASK_STOP_REASON;
   reason: typeof UNMANAGED_BACKGROUND_TASK_LIVENESS_REASON;
   terminalResultSeen: boolean;
+  signal: NodeJS.Signals | null;
+  forceKilled: boolean;
+}
+
+// ADR-0013 addendum (SOL-5377): a hard, in-process stop for the token
+// ceiling. `extractUsageDelta` is called once per complete stdout line as it
+// streams in and returns the token cost attributable to that line (e.g. a
+// single `assistant` stream-json event's `cache_read_input_tokens +
+// output_tokens`), or null if the line carries no usage. The adapter package
+// owns the parsing (it knows the CLI's event shape); this module only sums
+// the deltas and enforces the limit, mirroring the existing
+// `terminalResultCleanup` SIGTERM-then-SIGKILL idiom below.
+export interface TokenCeilingOptions {
+  limit: number;
+  extractUsageDelta: (line: string) => number | null;
+  graceMs?: number;
+}
+
+export const TOKEN_CEILING_STOP_REASON = "token_ceiling_hit";
+
+export interface TokenCeilingCleanupEvidence {
+  kind: "token_ceiling_cleanup";
+  stopped: true;
+  stopReason: typeof TOKEN_CEILING_STOP_REASON;
+  totalTokens: number;
+  limit: number;
   signal: NodeJS.Signals | null;
   forceKilled: boolean;
 }
@@ -4552,6 +4579,7 @@ export async function runChildProcess(
       startedAt: string;
     }) => Promise<void>;
     terminalResultCleanup?: TerminalResultCleanupOptions;
+    tokenCeiling?: TokenCeilingOptions;
     stdin?: string;
     remoteExecution?: RemoteExecutionSpec | null;
     localProcessSandbox?: LocalProcessSandboxOptions | null;
@@ -4636,12 +4664,61 @@ export async function runChildProcess(
         let terminalCleanupKillTimer: NodeJS.Timeout | null = null;
         let terminalResultStdoutScanOffset = 0;
         let terminalResultStderrScanOffset = 0;
+        // Token-ceiling accounting is independent of the capped `stdout`
+        // buffer above: `appendWithCap` truncates from the front once the
+        // capture cap is hit, which would silently corrupt a running sum keyed
+        // off absolute offsets into that buffer. Instead we hold only the
+        // trailing (possibly incomplete) line and fold each newly-completed
+        // line into the running total exactly once, immediately discarding it.
+        let tokenCeilingPartialLine = "";
+        let tokenCeilingTotal = 0;
+        let tokenCeilingStarted = false;
+        let tokenCeilingSignal: NodeJS.Signals | null = null;
+        let tokenCeilingForceKilled = false;
+        let tokenCeilingKillTimer: NodeJS.Timeout | null = null;
 
         const clearTerminalCleanupTimers = () => {
           if (terminalCleanupTimer) clearTimeout(terminalCleanupTimer);
           if (terminalCleanupKillTimer) clearTimeout(terminalCleanupKillTimer);
           terminalCleanupTimer = null;
           terminalCleanupKillTimer = null;
+          if (tokenCeilingKillTimer) clearTimeout(tokenCeilingKillTimer);
+          tokenCeilingKillTimer = null;
+        };
+
+        const maybeCheckTokenCeiling = (text: string) => {
+          const tokenCeiling = opts.tokenCeiling;
+          if (!tokenCeiling || tokenCeilingStarted || timedOut) return;
+          tokenCeilingPartialLine += text;
+          const lines = tokenCeilingPartialLine.split(/\r?\n/);
+          // The last split segment is either "" (text ended on a newline) or
+          // an incomplete trailing line; either way it is not yet a complete
+          // line, so hold it back for the next chunk instead of scoring it.
+          tokenCeilingPartialLine = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line) continue;
+            let delta: number | null = null;
+            try {
+              delta = tokenCeiling.extractUsageDelta(line);
+            } catch (err) {
+              onLogError(err, runId, "failed to extract token usage from adapter output line");
+              continue;
+            }
+            if (typeof delta === "number" && Number.isFinite(delta) && delta > 0) {
+              tokenCeilingTotal += delta;
+            }
+          }
+          if (tokenCeilingTotal <= tokenCeiling.limit) return;
+          tokenCeilingStarted = true;
+          tokenCeilingSignal = "SIGTERM";
+          signalRunningProcess({ child, processGroupId }, "SIGTERM");
+          const graceMs = Math.max(1, opts.graceSec) * 1000;
+          tokenCeilingKillTimer = setTimeout(() => {
+            tokenCeilingKillTimer = null;
+            tokenCeilingSignal = "SIGKILL";
+            tokenCeilingForceKilled = true;
+            signalRunningProcess({ child, processGroupId }, "SIGKILL");
+          }, graceMs);
         };
 
         const maybeArmTerminalResultCleanup = () => {
@@ -4724,6 +4801,7 @@ export async function runChildProcess(
           const text = String(chunk);
           stdout = appendWithCap(stdout, text);
           maybeArmTerminalResultCleanup();
+          maybeCheckTokenCeiling(text);
           logChain = logChain
             .then(() => opts.onLog("stdout", text))
             .catch((err) =>
@@ -4807,6 +4885,17 @@ export async function runChildProcess(
                           terminalResultSeen,
                           signal: terminalCleanupSignal,
                           forceKilled: terminalCleanupForceKilled,
+                        }
+                      : null,
+                    tokenCeilingCleanup: tokenCeilingStarted
+                      ? {
+                          kind: "token_ceiling_cleanup",
+                          stopped: true,
+                          stopReason: TOKEN_CEILING_STOP_REASON,
+                          totalTokens: tokenCeilingTotal,
+                          limit: opts.tokenCeiling?.limit ?? 0,
+                          signal: tokenCeilingSignal,
+                          forceKilled: tokenCeilingForceKilled,
                         }
                       : null,
                   });

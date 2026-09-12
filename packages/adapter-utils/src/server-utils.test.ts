@@ -34,6 +34,7 @@ import {
   stringifyPaperclipWakePayload,
   UNMANAGED_BACKGROUND_TASK_LIVENESS_REASON,
   UNMANAGED_BACKGROUND_TASK_STOP_REASON,
+  TOKEN_CEILING_STOP_REASON,
   WATCHDOG_DEFAULT_MANDATE,
 } from "./server-utils.js";
 
@@ -903,6 +904,185 @@ describe("runChildProcess", () => {
           }
         }
       }
+    },
+  );
+
+  const jsonLineUsageDelta = (line: string): number | null => {
+    try {
+      const parsed = JSON.parse(line) as { usage?: unknown };
+      return typeof parsed.usage === "number" ? parsed.usage : null;
+    } catch {
+      return null;
+    }
+  };
+
+  it.skipIf(process.platform === "win32")(
+    "stops a run once cumulative token-ceiling usage crosses the limit",
+    async () => {
+      const result = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        [
+          "-e",
+          [
+            "process.stdout.write(`${JSON.stringify({ usage: 100 })}\\n`);",
+            "setTimeout(() => process.stdout.write(`${JSON.stringify({ usage: 150 })}\\n`), 20);",
+            "setInterval(() => {}, 1000);",
+          ].join(" "),
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeoutSec: 0,
+          graceSec: 1,
+          onLog: async () => {},
+          tokenCeiling: { limit: 200, extractUsageDelta: jsonLineUsageDelta },
+        },
+      );
+
+      expect(result.timedOut).toBe(false);
+      expect(result.signal).toBe("SIGTERM");
+      expect(result.tokenCeilingCleanup).toMatchObject({
+        kind: "token_ceiling_cleanup",
+        stopped: true,
+        stopReason: TOKEN_CEILING_STOP_REASON,
+        totalTokens: 250,
+        limit: 200,
+        signal: "SIGTERM",
+        forceKilled: false,
+      });
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "escalates to SIGKILL if the child ignores the token-ceiling SIGTERM",
+    async () => {
+      const result = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        [
+          "-e",
+          [
+            "process.on('SIGTERM', () => {});",
+            "process.stdout.write(`${JSON.stringify({ usage: 300 })}\\n`);",
+            "setInterval(() => {}, 1000);",
+          ].join(" "),
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeoutSec: 0,
+          graceSec: 1,
+          onLog: async () => {},
+          tokenCeiling: { limit: 200, extractUsageDelta: jsonLineUsageDelta },
+        },
+      );
+
+      expect(result.signal).toBe("SIGKILL");
+      expect(result.tokenCeilingCleanup).toMatchObject({
+        stopped: true,
+        totalTokens: 300,
+        limit: 200,
+        signal: "SIGKILL",
+        forceKilled: true,
+      });
+    },
+  );
+
+  it(
+    "does not stop a run that stays under the token ceiling",
+    async () => {
+      const result = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        [
+          "-e",
+          [
+            "process.stdout.write(`${JSON.stringify({ usage: 100 })}\\n`);",
+            "setTimeout(() => process.exit(0), 25);",
+          ].join(" "),
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeoutSec: 0,
+          graceSec: 1,
+          onLog: async () => {},
+          tokenCeiling: { limit: 200, extractUsageDelta: jsonLineUsageDelta },
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.tokenCeilingCleanup).toBeNull();
+    },
+  );
+
+  it(
+    "counts a usage-bearing line correctly even when it arrives split across stdout chunks",
+    async () => {
+      // The one-shot inline script below writes the JSON line in two
+      // fs.writeSync calls with a delay in between, forcing two separate
+      // "data" events on the parent's stdout pipe instead of one.
+      const result = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        [
+          "-e",
+          [
+            "const line = JSON.stringify({ usage: 250 });",
+            "const half = Math.floor(line.length / 2);",
+            "process.stdout.write(line.slice(0, half));",
+            "setTimeout(() => { process.stdout.write(line.slice(half) + '\\n'); setTimeout(() => process.exit(0), 20); }, 20);",
+          ].join(" "),
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeoutSec: 0,
+          graceSec: 1,
+          onLog: async () => {},
+          tokenCeiling: { limit: 200, extractUsageDelta: jsonLineUsageDelta },
+        },
+      );
+
+      expect(result.tokenCeilingCleanup).toMatchObject({
+        totalTokens: 250,
+        limit: 200,
+      });
+    },
+  );
+
+  it(
+    "does not crash the run when extractUsageDelta throws",
+    async () => {
+      const result = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        [
+          "-e",
+          [
+            "process.stdout.write('not json\\n');",
+            "setTimeout(() => process.exit(0), 20);",
+          ].join(" "),
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeoutSec: 0,
+          graceSec: 1,
+          onLog: async () => {},
+          onLogError: () => {},
+          tokenCeiling: {
+            limit: 200,
+            extractUsageDelta: () => {
+              throw new Error("boom");
+            },
+          },
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.tokenCeilingCleanup).toBeNull();
     },
   );
 });

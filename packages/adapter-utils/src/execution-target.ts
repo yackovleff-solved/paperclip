@@ -78,6 +78,7 @@ import {
   runChildProcess,
   type RunProcessResult,
   type TerminalResultCleanupOptions,
+  type TokenCeilingOptions,
 } from "./server-utils.js";
 import { sanitizeRemoteExecutionEnv } from "./remote-execution-env.js";
 import { preferredShellForSandbox, shellCommandArgs } from "./sandbox-shell.js";
@@ -280,6 +281,14 @@ export interface AdapterExecutionTargetProcessOptions {
   onRuntimeProgress?: RuntimeStatusSink;
   onSpawn?: (meta: { pid: number; processGroupId: number | null; startedAt: string }) => Promise<void>;
   terminalResultCleanup?: TerminalResultCleanupOptions;
+  /**
+   * Local-process only (same restriction as `terminalResultCleanup`, see
+   * below): a hard, in-process stop once cumulative token usage extracted
+   * from the streamed stdout crosses `limit`. Not wired for the sandbox
+   * transport, which streams through an opaque provider runner instead of
+   * the child-process stdout listener this depends on.
+   */
+  tokenCeiling?: TokenCeilingOptions;
   /**
    * Sandbox-only: factory from the Paperclip bridge handle that streams the
    * CLI's stdout/stderr during the run. When provided, the batched provider
@@ -920,6 +929,7 @@ export async function runAdapterExecutionTargetProcess(
     onLog: options.onLog,
     onSpawn: options.onSpawn,
     terminalResultCleanup: options.terminalResultCleanup,
+    tokenCeiling: options.tokenCeiling,
     localProcessSandbox: target?.kind === "local" || !target ? options.localProcessSandbox : null,
     remoteExecution: adapterExecutionTargetToRemoteSpec(target),
   });

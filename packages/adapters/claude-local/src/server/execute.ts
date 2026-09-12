@@ -167,6 +167,39 @@ function resolveClaudeBillingType(env: Record<string, string>): "api" | "subscri
   return hasNonEmptyEnvValue(env, "ANTHROPIC_API_KEY") ? "api" : "subscription";
 }
 
+// ADR-0013 addendum (SOL-5377): default hard ceiling, matching the number
+// already published in every agent's instructions (previously enforced by
+// self-discipline only). `SOLVED_TOKEN_CEILING` overrides it, same env var
+// name the retired openclaw plugin used (never actually read anywhere).
+const DEFAULT_TOKEN_CEILING_LIMIT = 400_000;
+
+function resolveTokenCeilingLimit(env: Record<string, string>): number {
+  const raw = env.SOLVED_TOKEN_CEILING;
+  if (!raw) return DEFAULT_TOKEN_CEILING_LIMIT;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TOKEN_CEILING_LIMIT;
+}
+
+// Approximates cumulative session token consumption from the Claude CLI's
+// `--output-format stream-json` events. Each `assistant` event's
+// `message.usage` mirrors the Anthropic Messages API response for that one
+// turn (it is not a running total), so summing the per-turn deltas across
+// every assistant turn seen in the run gives the actual cumulative spend —
+// the same "accumulate per llm_output" approach the retired ADR-0013
+// openclaw plugin used, scored from cache-read + output tokens (matching the
+// wording already in every agent's instructions) instead of raw input.
+export function extractClaudeLineTokenDelta(line: string): number | null {
+  const event = parseJson(line);
+  if (!event || asString(event.type, "") !== "assistant") return null;
+  const message = parseObject(event.message);
+  const usage = parseObject(message.usage);
+  if (Object.keys(usage).length === 0) return null;
+  const cachedInputTokens = asNumber(usage.cache_read_input_tokens, 0);
+  const outputTokens = asNumber(usage.output_tokens, 0);
+  const delta = cachedInputTokens + outputTokens;
+  return delta > 0 ? delta : null;
+}
+
 async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<ClaudeRuntimeConfig> {
   const { runId, agent, config, context, runtimeCommandSpec, executionTarget, authToken } = input;
   const onLog = input.onLog ?? (async () => {});
@@ -488,6 +521,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ),
   );
+  // ADR-0013 addendum (SOL-5377): hard in-process stop, replacing the
+  // never-deployed openclaw token-ceiling plugin. `SOLVED_TOKEN_CEILING`
+  // stays the override knob the retired ADR-0013 plugin used, now read here
+  // instead of by a plugin that was never wired up.
+  const tokenCeilingLimit = resolveTokenCeilingLimit(effectiveEnv);
   const modelEnv = executionTargetIsRemote ? env : effectiveEnv;
   const model = resolveClaudeModel(config.model, modelEnv);
   const billingType = resolveClaudeBillingType(effectiveEnv);
@@ -974,6 +1012,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         graceMs: terminalResultCleanupGraceMs,
         hasTerminalResult: ({ stdout }) => parseClaudeStreamJson(stdout).resultJson !== null,
       },
+      tokenCeiling: {
+        limit: tokenCeilingLimit,
+        extractUsageDelta: extractClaudeLineTokenDelta,
+      },
       localProcessSandbox,
     });
 
@@ -1012,6 +1054,30 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         errorCode: "timeout",
         errorMeta,
         clearSession: Boolean(opts.clearSessionOnMissingSession),
+      };
+    }
+
+    // ADR-0013 addendum (SOL-5377): the run was hard-stopped mid-stream for
+    // crossing the token ceiling, so `parsed` below is normally null (Claude
+    // never got to emit its terminal `result` event) — check this before the
+    // generic `!parsed` classification would otherwise report it as an
+    // opaque parse failure. `clearSession: true` mirrors ADR-0013's
+    // re-queue policy: resuming the same (already-oversized) session would
+    // immediately re-trip the ceiling.
+    if (proc.tokenCeilingCleanup) {
+      const { totalTokens, limit } = proc.tokenCeilingCleanup;
+      return {
+        exitCode: proc.exitCode,
+        signal: proc.signal,
+        timedOut: false,
+        errorMessage: `token_ceiling_hit: ${totalTokens} tokens exceeded ${limit} limit`,
+        errorCode: "token_ceiling_hit",
+        resultJson: {
+          stdout: proc.stdout,
+          stderr: proc.stderr,
+          tokenCeilingHit: { totalTokens, limit },
+        },
+        clearSession: true,
       };
     }
 
