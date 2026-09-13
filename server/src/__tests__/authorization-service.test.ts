@@ -666,6 +666,55 @@ describeEmbeddedPostgres("authorization service", () => {
     }
   });
 
+  it("does not universally deny issue access when a boundary lacks explicit scope (SOL-5578)", async () => {
+    // Root cause of SOL-5568/70/71: resolveCoreTrustPreset previously treated the
+    // mere presence of a trustBoundary (even one carrying no rootIssueId/
+    // projectIds/issueIds) as an implicit low_trust_review signal. Once merged,
+    // that scopeless boundary failed hasBoundaryScope() and the resolution came
+    // back `denied`, which decideLowTrustAccess/assertIssueReadAllowed then
+    // applied as a *universal* deny across every issue for the actor -- not just
+    // out-of-scope ones. A boundary with no concrete scope must not force
+    // low-trust review at all; ordinary visibility rules should apply.
+    const company = await createCompany(db, "ScopelessBoundaryNoUniversalDeny");
+    const ownerAgent = await createAgent(db, company.id);
+    const actorAgent = await createAgent(db, company.id, {
+      permissions: {
+        authorizationPolicy: {
+          trustBoundary: {
+            mode: LOW_TRUST_REVIEW_PRESET,
+            allowedToolClasses: ["git.read"],
+          },
+        },
+      },
+    });
+    const issue = await createIssue(db, company.id, { assigneeAgentId: ownerAgent.id });
+    const actor = {
+      type: "agent" as const,
+      agentId: actorAgent.id,
+      companyId: company.id,
+      source: "agent_jwt" as const,
+    };
+    const resource = {
+      type: "issue" as const,
+      companyId: company.id,
+      issueId: issue.id,
+      projectId: issue.projectId,
+      parentIssueId: issue.parentId,
+      assigneeAgentId: issue.assigneeAgentId,
+      status: issue.status,
+    };
+    const authorization = authorizationService(db);
+
+    await expect(authorization.decide({ actor, action: "issue:comment", resource })).resolves.toMatchObject({
+      allowed: true,
+      reason: "allow_visible_issue_write",
+    });
+    await expect(authorization.decide({ actor, action: "issue:mutate", resource })).resolves.toMatchObject({
+      allowed: true,
+      reason: "allow_visible_issue_write",
+    });
+  });
+
   it("does not let default-open non-assignee comments mint mention grants", async () => {
     const company = await createCompany(db, "DefaultOpenMentionNonTransitive");
     const ownerAgent = await createAgent(db, company.id);

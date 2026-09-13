@@ -202,7 +202,13 @@ function parseSource(
     authorizationPolicy,
     trustPreset,
     boundary,
-    impliesLowTrust: trustPreset === LOW_TRUST_REVIEW_PRESET || Boolean(boundary),
+    // A boundary object with no concrete scope (rootIssueId/projectIds/issueIds)
+    // conveys no actionable restriction on its own. Treating its mere presence as
+    // an escalation signal (regardless of scope) previously caused any source
+    // with a scopeless boundary to force the *entire* resolution into
+    // low_trust_review, which then unconditionally denied access everywhere
+    // once merge() found no scope to satisfy hasBoundaryScope() (SOL-5578).
+    impliesLowTrust: trustPreset === LOW_TRUST_REVIEW_PRESET || (boundary !== null && hasBoundaryScope(boundary)),
   };
 }
 

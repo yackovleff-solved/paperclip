@@ -147,6 +147,82 @@ describe("resolveCoreTrustPreset", () => {
     });
   });
 
+  it("does not force low-trust review from a scopeless boundary alone (SOL-5578)", () => {
+    // A boundary object can be present on any of the four policy sources without
+    // ever having carried an explicit trustPreset/reviewPreset (e.g. a stale or
+    // partially-normalized policy blob). Its mere presence must not by itself
+    // escalate the whole resolution into low_trust_review -- only a boundary that
+    // actually carries scope (rootIssueId/projectIds/issueIds), or an explicit
+    // preset, is an actionable signal. Regression for the universal-deny bug in
+    // SOL-5578 (root cause of SOL-5568/70/71).
+    const scopelessBoundary = lowTrustBoundary({ allowedToolClasses: ["git.read"] });
+
+    const agentOnly = resolveCoreTrustPreset({
+      companyId,
+      agent: { companyId, permissions: { authorizationPolicy: { trustBoundary: scopelessBoundary } } },
+    });
+    expect(agentOnly).toMatchObject({ kind: "standard", preset: "standard", boundary: null });
+
+    const projectOnly = resolveCoreTrustPreset({
+      companyId,
+      project: { companyId, executionWorkspacePolicy: boundaryPolicy(scopelessBoundary) },
+    });
+    expect(projectOnly).toMatchObject({ kind: "standard", preset: "standard", boundary: null });
+
+    const issueOnly = resolveCoreTrustPreset({
+      companyId,
+      issue: { companyId, executionPolicy: { authorizationPolicy: { trustBoundary: scopelessBoundary } } },
+    });
+    expect(issueOnly).toMatchObject({ kind: "standard", preset: "standard", boundary: null });
+
+    const runOnly = resolveCoreTrustPreset({
+      companyId,
+      run: { companyId, executionPolicy: { authorizationPolicy: { trustBoundary: scopelessBoundary } } },
+    });
+    expect(runOnly).toMatchObject({ kind: "standard", preset: "standard", boundary: null });
+  });
+
+  it("still requires an explicit preset for a scoped boundary to imply low-trust review", () => {
+    // Non-regression: a boundary that DOES carry concrete scope must keep
+    // triggering low_trust_review even without an explicit top-level trustPreset,
+    // since a scoped boundary is itself an actionable restriction signal.
+    const result = resolveCoreTrustPreset({
+      companyId,
+      issue: {
+        companyId,
+        executionPolicy: {
+          authorizationPolicy: {
+            trustBoundary: lowTrustBoundary({ rootIssueId, issueIds: [issueA] }),
+          },
+        },
+      },
+    });
+
+    expect(result.kind).toBe("low_trust_review");
+  });
+
+  it("does not leak a prior run's low-trust boundary into a fresh resolution that omits the run source", () => {
+    const quarantinedRun = resolveCoreTrustPreset({
+      companyId,
+      run: {
+        companyId,
+        executionPolicy: {
+          authorizationPolicy: {
+            trustPreset: LOW_TRUST_REVIEW_PRESET,
+            trustBoundary: lowTrustBoundary({ rootIssueId, issueIds: [issueA] }),
+          },
+        },
+      },
+    });
+    expect(quarantinedRun.kind).toBe("low_trust_review");
+
+    // resolveCoreTrustPreset is a pure function of its input: a fresh checkout
+    // that does not carry the previous run's persisted executionPolicy forward
+    // must resolve entirely on its own merits.
+    const freshCheckout = resolveCoreTrustPreset({ companyId });
+    expect(freshCheckout).toMatchObject({ kind: "standard", preset: "standard", boundary: null });
+  });
+
   it("denies cross-company policy sources and boundaries", () => {
     const sourceMismatch = resolveCoreTrustPreset({
       companyId,
