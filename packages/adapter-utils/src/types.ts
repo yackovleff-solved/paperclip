@@ -182,7 +182,15 @@ export type AdapterSkillState =
   | "installed"
   | "missing"
   | "stale"
-  | "external";
+  | "external"
+  /**
+   * ASI09/SOL-3191 (layer-b Step 1, default-OFF behind
+   * PAPERCLIP_SKILL_SIGNATURE_ENFORCE). A company_managed root that failed
+   * cosign signature verification while enforcement was on — Paperclip
+   * refused to materialize/symlink it. Never used for bundled or
+   * user_installed skills, and never used at all with the flag off.
+   */
+  | "blocked_unsigned";
 
 export type AdapterSkillOrigin =
   | "company_managed"

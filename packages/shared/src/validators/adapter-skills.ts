@@ -7,6 +7,7 @@ export const agentSkillStateSchema = z.enum([
   "missing",
   "stale",
   "external",
+  "blocked_unsigned",
 ]);
 
 export const agentSkillOriginSchema = z.enum([

@@ -107,6 +107,18 @@ const SKILL_SIGNATURE_VERIFY_TIMEOUT_MS = 20_000;
 // every write and defeat the cache.
 const SKILL_SIGNATURE_VERIFY_CACHE_DIR = path.join(os.tmpdir(), "paperclip-skill-signature-cache");
 
+// ASI09 / SOL-3191 (layer-b Step 1, default-OFF) — fail-closed enforcement
+// gate for the telemetry above. Owner-accepted 2026-09-12 (interaction
+// c9a1a455 on SOL-3190) to build behind this flag; flipping it on in prod
+// is a separate, still-pending owner decision (needs cosign provisioned on
+// harness hosts first — see runbook/asi09-skill-signature-enforcement.md).
+const SKILL_SIGNATURE_ENFORCE_ENV_VAR = "PAPERCLIP_SKILL_SIGNATURE_ENFORCE";
+
+function isSkillSignatureEnforcementEnabled(): boolean {
+  const raw = process.env[SKILL_SIGNATURE_ENFORCE_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true";
+}
+
 function expandHomePrefix(value: string): string {
   if (value === "~") return os.homedir();
   if (value.startsWith("~/")) return path.resolve(os.homedir(), value.slice(2));
@@ -161,6 +173,9 @@ export interface InstalledSkillTarget {
 export interface MaterializedPaperclipSkillCopyResult {
   copiedFiles: number;
   skippedSymlinks: string[];
+  /** ASI09/SOL-3191 fail-closed enforcement refused to materialize this skill. */
+  blocked?: boolean;
+  blockedReason?: string;
 }
 
 interface PersistentSkillSnapshotOptions {
@@ -1414,6 +1429,22 @@ function resolveSkillSignatureTelemetry(
   return { signatureState: verification.state, signatureDetail: verification.detail };
 }
 
+/**
+ * ASI09 / SOL-3191 (layer-b Step 1, default-OFF) — synchronous read of
+ * whether enforcement would refuse this entry, based on whatever
+ * verification already ran this process (materializePaperclipSkillCopy /
+ * ensurePaperclipSkillSymlink populate it as a side effect before a
+ * snapshot is rebuilt). Never true for bundled/user_installed roots
+ * (`isSignedRoot: false`) or with the flag off.
+ */
+function isSkillSignatureEnforcementBlocking(sourcePath: string | null): boolean {
+  if (!sourcePath || !isSkillSignatureEnforcementEnabled()) return false;
+  const managedRoot = path.dirname(path.resolve(sourcePath));
+  const verification = getLastSkillSignatureVerification(managedRoot);
+  if (!verification) return false;
+  return verification.isSignedRoot && verification.state !== "verified";
+}
+
 export function buildPersistentSkillSnapshot(
   options: PersistentSkillSnapshotOptions,
 ): AdapterSkillSnapshot {
@@ -1453,6 +1484,17 @@ export function buildPersistentSkillSnapshot(
       detail = missingDetail;
     }
 
+    const signatureTelemetry = resolveSkillSignatureTelemetry(available.source);
+    if (desired && isSkillSignatureEnforcementBlocking(available.source)) {
+      state = "blocked_unsigned";
+      detail =
+        signatureTelemetry.signatureDetail ??
+        "Company-managed skill root failed cosign signature verification.";
+      warnings.push(
+        `Skill "${available.key}" is blocked_unsigned: cosign signature verification failed for its managed root (ASI09/SOL-3191 fail-closed enforcement).`,
+      );
+    }
+
     entries.push({
       key: available.key,
       runtimeName: available.runtimeName,
@@ -1465,7 +1507,7 @@ export function buildPersistentSkillSnapshot(
       required: Boolean(available.required),
       requiredReason: available.requiredReason ?? null,
       ...buildManagedSkillOrigin(available),
-      ...resolveSkillSignatureTelemetry(available.source),
+      ...signatureTelemetry,
     });
   }
 
@@ -1656,8 +1698,9 @@ export async function ensurePaperclipSkillSymlink(
   target: string,
   linkSkill: (source: string, target: string) => Promise<void> = (linkSource, linkTarget) =>
     fs.symlink(linkSource, linkTarget),
-): Promise<"created" | "repaired" | "skipped"> {
-  await checkCompanyManagedSkillSignatureBestEffort(source);
+): Promise<"created" | "repaired" | "skipped" | "blocked_unsigned"> {
+  const { blocked } = await checkCompanyManagedSkillSignatureBestEffort(source);
+  if (blocked) return "blocked_unsigned";
 
   const existing = await fs.lstat(target).catch(() => null);
   if (!existing) {
@@ -1729,6 +1772,15 @@ export interface SkillSignatureVerification {
   detail: string;
   checkedAt: string;
   cached: boolean;
+  /**
+   * True when `managedRoot` has a signed manifest + cosign bundle under
+   * `.signatures/` — the operational definition of "company_managed" this
+   * loader can observe (SOL-3191). `false` means this is a bundled or
+   * user_installed root that was never meant to be signed; enforcement
+   * (see isSkillSignatureEnforcementEnabled) must never block those,
+   * regardless of `state`.
+   */
+  isSignedRoot: boolean;
 }
 
 // Note: the module's existing `pathExists()` checks X_OK (executability),
@@ -1760,7 +1812,10 @@ async function readSkillSignatureVerifyCache(
     ) {
       return null;
     }
-    return { state, managedRoot, detail: result.detail, checkedAt: result.checkedAt, cached: true };
+    // Only ever written for a root that has manifest+bundle+script present
+    // (see the early-return below, before this cache is touched) — a cache
+    // hit is always for a signed root.
+    return { state, managedRoot, detail: result.detail, checkedAt: result.checkedAt, cached: true, isSignedRoot: true };
   } catch {
     return null;
   }
@@ -1844,11 +1899,12 @@ async function performSkillSignatureVerification(
       detail: "cosign verify-blob OK against signed manifest.",
       checkedAt,
       cached: false,
+      isSignedRoot: true,
     };
   }
   const state = classifySkillSignatureFailure(stderr);
   const detail = extractSkillSignatureFailureDetail(stderr, code);
-  return { state, managedRoot, detail, checkedAt, cached: false };
+  return { state, managedRoot, detail, checkedAt, cached: false, isSignedRoot: true };
 }
 
 // verify.sh's fail() helper always echoes the specific reason first, then a
@@ -1907,6 +1963,12 @@ export async function verifyCompanyManagedSkillSignature(source: string): Promis
     if (!hasManifest || !hasBundle || !hasScript) {
       // Expected for non-signed roots (bundled Paperclip skills, ad-hoc
       // user_installed skills) — not logged, this is the common case.
+      // hasManifest && hasBundle is this loader's only observable signal for
+      // "this root is company_managed and was signed" (SOL-3191) — missing
+      // manifest/bundle is expected for non-signed roots and never enforced.
+      // Missing *script* alone (manifest/bundle present) means enforcement
+      // can't be proven for a root that is signed, so it still counts as
+      // signed here.
       return {
         state: "unavailable",
         managedRoot,
@@ -1915,6 +1977,7 @@ export async function verifyCompanyManagedSkillSignature(source: string): Promis
           : `verify script not found at ${scriptPath}`,
         checkedAt,
         cached: false,
+        isSignedRoot: hasManifest && hasBundle,
       };
     }
 
@@ -1928,6 +1991,7 @@ export async function verifyCompanyManagedSkillSignature(source: string): Promis
         detail: `failed to fingerprint managed skills root: ${err instanceof Error ? err.message : String(err)}`,
         checkedAt,
         cached: false,
+        isSignedRoot: true,
       };
       logSkillSignatureVerification(result);
       return result;
@@ -1971,16 +2035,32 @@ export function __resetSkillSignatureVerificationCacheForTests(): void {
 /**
  * Wraps verifyCompanyManagedSkillSignature() for call sites that must never
  * fail or slow down on its account (materializePaperclipSkillCopy,
- * ensurePaperclipSkillSymlink) — telemetry-only, so any unexpected error
- * here is swallowed and logged rather than propagated.
+ * ensurePaperclipSkillSymlink). Best-effort — any unexpected error here is
+ * swallowed and logged, never propagated, and never blocks.
+ *
+ * Returns `{ blocked: true }` only when ALL of the following hold (ASI09
+ * layer-b Step 1, SOL-3191, default-OFF behind PAPERCLIP_SKILL_SIGNATURE_ENFORCE):
+ *  - the flag is on,
+ *  - the root is a signed company_managed root (`isSignedRoot`), and
+ *  - verification did not come back `"verified"` (no cosign / drift / bad signature).
+ * Bundled and user_installed roots (`isSignedRoot: false`) are never blocked,
+ * flag on or off — this keeps the blast radius to company_managed only.
  */
-async function checkCompanyManagedSkillSignatureBestEffort(source: string): Promise<void> {
+async function checkCompanyManagedSkillSignatureBestEffort(
+  source: string,
+): Promise<{ blocked: boolean; verification: SkillSignatureVerification | null }> {
   try {
-    await verifyCompanyManagedSkillSignature(source);
+    const verification = await verifyCompanyManagedSkillSignature(source);
+    const blocked =
+      isSkillSignatureEnforcementEnabled() &&
+      verification.isSignedRoot &&
+      verification.state !== "verified";
+    return { blocked, verification };
   } catch (err) {
     console.warn(
       `Paperclip skill-signature telemetry (ASI09/SOL-3190) check threw for ${source}: ${err instanceof Error ? err.message : String(err)}`,
     );
+    return { blocked: false, verification: null };
   }
 }
 
@@ -2075,7 +2155,17 @@ export async function materializePaperclipSkillCopy(
     throw new Error("Paperclip skills must be directories.");
   }
 
-  await checkCompanyManagedSkillSignatureBestEffort(sourceRoot);
+  const signatureGate = await checkCompanyManagedSkillSignatureBestEffort(sourceRoot);
+  if (signatureGate.blocked) {
+    return {
+      copiedFiles: 0,
+      skippedSymlinks: [],
+      blocked: true,
+      blockedReason:
+        signatureGate.verification?.detail ??
+        "Company-managed skill root failed cosign signature verification.",
+    };
+  }
 
   const result: MaterializedPaperclipSkillCopyResult = {
     copiedFiles: 0,

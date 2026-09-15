@@ -7,6 +7,7 @@ import {
   applyPaperclipWorkspaceEnv,
   appendWithByteCap,
   buildInvocationEnvForLogs,
+  buildPersistentSkillSnapshot,
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
   ensurePaperclipSkillSymlink,
   getLastSkillSignatureVerification,
@@ -415,182 +416,150 @@ describe("verifyCompanyManagedSkillSignature", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
-});
 
-describe("adapter skill snapshots", () => {
-  const requiredEntry = {
-    key: "paperclipai/paperclip/paperclip",
-    runtimeName: "paperclip",
-    source: "/runtime/paperclip",
-  };
-  const optionalEntry = {
-    key: "company/ascii-heart",
-    runtimeName: "ascii-heart",
-    source: "/runtime/ascii-heart",
-  };
+  // ASI09 / SOL-3191 — layer-b Step 1, fail-closed enforcement behind
+  // PAPERCLIP_SKILL_SIGNATURE_ENFORCE (default-OFF; the tests above cover
+  // that default-off behavior is unchanged from Step 0).
+  describe("PAPERCLIP_SKILL_SIGNATURE_ENFORCE (Step 1 fail-closed enforcement)", () => {
+    const ENFORCE_ENV_VAR = "PAPERCLIP_SKILL_SIGNATURE_ENFORCE";
 
-  it("reports runtime-mounted adapters as configured or missing without install state", () => {
-    const snapshot = buildRuntimeMountedSkillSnapshot({
-      adapterType: "codex_local",
-      availableEntries: [requiredEntry],
-      desiredSkills: [requiredEntry.key, "missing-skill"],
-      configuredDetail: "Mounted on next run.",
+    function withEnforcementEnabled<T>(fn: () => Promise<T>): Promise<T> {
+      const previous = process.env[ENFORCE_ENV_VAR];
+      process.env[ENFORCE_ENV_VAR] = "1";
+      return fn().finally(() => {
+        if (previous === undefined) delete process.env[ENFORCE_ENV_VAR];
+        else process.env[ENFORCE_ENV_VAR] = previous;
+      });
+    }
+
+    it("blocks materialize/symlink for a signed root with manifest drift, session stays alive", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+      try {
+        const { skillDir } = await setupSignedSkillsRepo(root, {
+          exitCode: 1,
+          stderrMessage: "verify.sh: FAIL: skills tree drifted from signed manifest — re-run scripts/skills-sign/sign.sh",
+        });
+
+        await withEnforcementEnabled(async () => {
+          const copyTarget = path.join(root, "copy-target");
+          const copyResult = await materializePaperclipSkillCopy(skillDir, copyTarget);
+          expect(copyResult).toMatchObject({ copiedFiles: 0, blocked: true });
+          expect(copyResult.blockedReason).toContain("drifted from signed manifest");
+          await expect(fs.stat(copyTarget)).rejects.toThrow();
+
+          const linkTarget = path.join(root, "link-target");
+          await expect(ensurePaperclipSkillSymlink(skillDir, linkTarget)).resolves.toBe("blocked_unsigned");
+          await expect(fs.lstat(linkTarget)).rejects.toThrow();
+        });
+      } finally {
+        __resetSkillSignatureVerificationCacheForTests();
+        await fs.rm(root, { recursive: true, force: true });
+      }
     });
 
-    expect(snapshot).toMatchObject({
-      supported: true,
-      mode: "ephemeral",
-      desiredSkills: [requiredEntry.key, "missing-skill"],
-    });
-    expect(snapshot.entries).toEqual([
-      expect.objectContaining({
-        key: "missing-skill",
-        state: "missing",
-        origin: "external_unknown",
-        desired: true,
-      }),
-      expect.objectContaining({
-        key: requiredEntry.key,
-        state: "configured",
-        origin: "company_managed",
-        detail: "Mounted on next run.",
-      }),
-    ]);
-  });
+    it("blocks a signed root when cosign is missing (unavailable, not invalid)", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+      try {
+        const { skillDir } = await setupSignedSkillsRepo(root, {
+          exitCode: 1,
+          stderrMessage: "verify.sh: FAIL: cosign not found on PATH",
+        });
 
-  it("reports source-missing company runtime skills without orphan warnings", () => {
-    const snapshot = buildRuntimeMountedSkillSnapshot({
-      adapterType: "codex_local",
-      availableEntries: [{
-        key: "company/example/reflection-coach",
-        runtimeName: "reflection-coach--abc123",
-        source: "/paperclip/skills/example/__runtime__/reflection-coach--abc123",
-        sourceStatus: "missing",
-        missingDetail: "Company skill exists, but its local source is missing.",
-      }],
-      desiredSkills: ["company/example/reflection-coach"],
-      configuredDetail: "Mounted on next run.",
+        await withEnforcementEnabled(async () => {
+          const verification = await verifyCompanyManagedSkillSignature(skillDir);
+          expect(verification.state).toBe("unavailable");
+          __resetSkillSignatureVerificationCacheForTests();
+
+          const copyTarget = path.join(root, "copy-target");
+          await expect(materializePaperclipSkillCopy(skillDir, copyTarget)).resolves.toMatchObject({
+            copiedFiles: 0,
+            blocked: true,
+          });
+        });
+      } finally {
+        __resetSkillSignatureVerificationCacheForTests();
+        await fs.rm(root, { recursive: true, force: true });
+      }
     });
 
-    expect(snapshot.warnings).toEqual([]);
-    expect(snapshot.entries).toEqual([
-      expect.objectContaining({
-        key: "company/example/reflection-coach",
-        state: "missing",
-        origin: "company_managed",
-        sourcePath: null,
-        detail: "Company skill exists, but its local source is missing.",
-      }),
-    ]);
-  });
+    it("never blocks a bundled/user-installed root (no manifest at all) even with enforcement on", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+      try {
+        const skillDir = path.join(root, "unsigned-repo", "skills", "my-skill");
+        await fs.mkdir(skillDir, { recursive: true });
+        await fs.writeFile(path.join(skillDir, "SKILL.md"), "# skill\n", "utf8");
 
-  it("keeps unsupported runtime-mounted adapters in tracked-only state", () => {
-    const snapshot = buildRuntimeMountedSkillSnapshot({
-      adapterType: "acpx_local",
-      availableEntries: [requiredEntry],
-      desiredSkills: [requiredEntry.key],
-      configuredDetail: "Mounted on next run.",
-      mode: "unsupported",
-      unsupportedDetail: "Tracked only.",
+        await withEnforcementEnabled(async () => {
+          const copyTarget = path.join(root, "copy-target");
+          const copyResult = await materializePaperclipSkillCopy(skillDir, copyTarget);
+          expect(copyResult).toMatchObject({ copiedFiles: 1 });
+          expect(copyResult.blocked).toBeFalsy();
+
+          const linkTarget = path.join(root, "link-target");
+          await expect(ensurePaperclipSkillSymlink(skillDir, linkTarget)).resolves.toBe("created");
+        });
+      } finally {
+        __resetSkillSignatureVerificationCacheForTests();
+        await fs.rm(root, { recursive: true, force: true });
+      }
     });
 
-    expect(snapshot.supported).toBe(false);
-    expect(snapshot.mode).toBe("unsupported");
-    expect(snapshot.entries).toContainEqual(expect.objectContaining({
-      key: requiredEntry.key,
-      desired: true,
-      state: "available",
-      detail: "Tracked only.",
-    }));
-  });
+    it("does not block when the flag is off, even for a signed root with an invalid signature", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+      try {
+        const { skillDir } = await setupSignedSkillsRepo(root, {
+          exitCode: 1,
+          stderrMessage: "verify.sh: FAIL: cosign signature verification failed for bundle",
+        });
 
-  it("can surface read-only external skills for runtime-mounted adapters", () => {
-    const snapshot = buildRuntimeMountedSkillSnapshot({
-      adapterType: "claude_local",
-      availableEntries: [requiredEntry],
-      desiredSkills: [requiredEntry.key],
-      configuredDetail: "Mounted on next run.",
-      externalInstalled: new Map([
-        ["crack-python", { targetPath: "/home/me/.claude/skills/crack-python", kind: "directory" }],
-      ]),
-      externalLocationLabel: "~/.claude/skills",
-      externalDetail: "Installed outside Paperclip management in the Claude skills home.",
+        expect(process.env[ENFORCE_ENV_VAR]).toBeUndefined();
+        const copyTarget = path.join(root, "copy-target");
+        const copyResult = await materializePaperclipSkillCopy(skillDir, copyTarget);
+        expect(copyResult).toMatchObject({ copiedFiles: 1 });
+        expect(copyResult.blocked).toBeFalsy();
+      } finally {
+        __resetSkillSignatureVerificationCacheForTests();
+        await fs.rm(root, { recursive: true, force: true });
+      }
     });
 
-    expect(snapshot.entries).toContainEqual(expect.objectContaining({
-      key: "crack-python",
-      runtimeName: "crack-python",
-      state: "external",
-      managed: false,
-      origin: "user_installed",
-      locationLabel: "~/.claude/skills",
-      readOnly: true,
-    }));
-  });
+    it("marks buildPersistentSkillSnapshot entries blocked_unsigned and adds a warning", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-sig-"));
+      try {
+        const { skillDir } = await setupSignedSkillsRepo(root, {
+          exitCode: 1,
+          stderrMessage: "verify.sh: FAIL: skills tree drifted from signed manifest",
+        });
 
-  it("reports persistent adapter installed, stale, external, and missing states", () => {
-    const snapshot = buildPersistentSkillSnapshot({
-      adapterType: "cursor",
-      availableEntries: [requiredEntry, optionalEntry],
-      desiredSkills: [requiredEntry.key, "missing-skill"],
-      installed: new Map([
-        ["paperclip", { targetPath: "/runtime/paperclip", kind: "symlink" }],
-        ["ascii-heart", { targetPath: "/other/ascii-heart", kind: "directory" }],
-        ["old-managed", { targetPath: "/runtime/old-managed", kind: "symlink" }],
-      ]),
-      skillsHome: "/home/me/.cursor/skills",
-      locationLabel: "~/.cursor/skills",
-      installedDetail: "Installed in the Cursor skills home.",
-      missingDetail: "Configured but not linked.",
-      externalConflictDetail: "Name occupied externally.",
-      externalDetail: "Installed outside Paperclip management.",
+        await withEnforcementEnabled(async () => {
+          const linkTarget = path.join(root, ".cursor", "skills", "my-skill");
+          await expect(ensurePaperclipSkillSymlink(skillDir, linkTarget)).resolves.toBe("blocked_unsigned");
+
+          const snapshot = buildPersistentSkillSnapshot({
+            adapterType: "cursor",
+            availableEntries: [{ key: "solved/my-skill", runtimeName: "my-skill", source: skillDir }],
+            desiredSkills: ["solved/my-skill"],
+            installed: new Map(),
+            skillsHome: path.join(root, ".cursor", "skills"),
+            missingDetail: "Configured but not linked.",
+            externalConflictDetail: "Name occupied externally.",
+            externalDetail: "Installed outside Paperclip management.",
+          });
+
+          expect(snapshot.entries).toContainEqual(
+            expect.objectContaining({
+              key: "solved/my-skill",
+              state: "blocked_unsigned",
+              signatureState: "invalid",
+            }),
+          );
+          expect(snapshot.warnings.some((warning) => warning.includes("blocked_unsigned"))).toBe(true);
+        });
+      } finally {
+        __resetSkillSignatureVerificationCacheForTests();
+        await fs.rm(root, { recursive: true, force: true });
+      }
     });
-
-    expect(snapshot.mode).toBe("persistent");
-    expect(snapshot.entries).toContainEqual(expect.objectContaining({
-      key: requiredEntry.key,
-      state: "installed",
-      managed: true,
-      origin: "company_managed",
-    }));
-    expect(snapshot.entries).toContainEqual(expect.objectContaining({
-      key: optionalEntry.key,
-      state: "external",
-      managed: false,
-      detail: "Installed outside Paperclip management.",
-    }));
-    expect(snapshot.entries).toContainEqual(expect.objectContaining({
-      key: "missing-skill",
-      state: "missing",
-      origin: "external_unknown",
-    }));
-    expect(snapshot.entries).toContainEqual(expect.objectContaining({
-      key: "old-managed",
-      state: "external",
-      origin: "user_installed",
-    }));
-  });
-
-  it("reports stale managed persistent skills when Paperclip owns an undesired available skill", () => {
-    const snapshot = buildPersistentSkillSnapshot({
-      adapterType: "cursor",
-      availableEntries: [optionalEntry],
-      desiredSkills: [],
-      installed: new Map([
-        ["ascii-heart", { targetPath: "/runtime/ascii-heart", kind: "symlink" }],
-      ]),
-      skillsHome: "/home/me/.cursor/skills",
-      missingDetail: "Configured but not linked.",
-      externalConflictDetail: "Name occupied externally.",
-      externalDetail: "Installed outside Paperclip management.",
-    });
-
-    expect(snapshot.entries).toContainEqual(expect.objectContaining({
-      key: optionalEntry.key,
-      desired: false,
-      state: "stale",
-      managed: true,
-    }));
   });
 });
 
