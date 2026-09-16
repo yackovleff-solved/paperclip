@@ -356,6 +356,118 @@ describe("issue execution policy routes", () => {
     );
   });
 
+  it("re-arms a monitor that a blocked transition previously cleared, via executionPolicy + status (SOL-5899)", async () => {
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "blocked",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-1007",
+      title: "External review monitor",
+      executionPolicy: null,
+      executionState: {
+        status: "idle",
+        currentStageId: null,
+        currentStageIndex: null,
+        currentStageType: null,
+        currentParticipant: null,
+        returnAssignee: null,
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+        monitor: {
+          status: "cleared",
+          nextCheckAt: null,
+          lastTriggeredAt: null,
+          attemptCount: 0,
+          notes: "Waiting on trail-analytics-digest",
+          scheduledBy: "assignee",
+          kind: "external_service",
+          serviceName: "trail-analytics-digest",
+          externalRef: null,
+          timeoutAt: null,
+          maxAttempts: null,
+          recoveryPolicy: null,
+          clearedAt: "2026-09-16T08:50:36.627Z",
+          clearReason: "invalid_status",
+        },
+      },
+      monitorAttemptCount: 0,
+      monitorNextCheckAt: null,
+      monitorLastTriggeredAt: null,
+      monitorNotes: null,
+      monitorScheduledBy: null,
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "33333333-3333-4333-8333-333333333333",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "in_progress",
+        executionPolicy: {
+          monitor: {
+            nextCheckAt: "2026-09-29T09:00:00.000Z",
+            scheduledBy: "assignee",
+            notes: "trail-analytics-digest recheck",
+          },
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      expect.objectContaining({
+        status: "in_progress",
+        monitorNextCheckAt: new Date("2026-09-29T09:00:00.000Z"),
+        executionState: expect.objectContaining({
+          monitor: expect.objectContaining({ status: "scheduled", nextCheckAt: "2026-09-29T09:00:00.000Z" }),
+        }),
+      }),
+    );
+  });
+
+  it("rejects a direct PATCH of server-computed monitor fields instead of silently ignoring them (SOL-5899)", async () => {
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "blocked",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-1008",
+      title: "External review monitor",
+      executionPolicy: null,
+      executionState: null,
+      monitorAttemptCount: 0,
+      monitorNextCheckAt: null,
+      monitorLastTriggeredAt: null,
+      monitorNotes: null,
+      monitorScheduledBy: null,
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+
+    const res = await request(await createApp())
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ monitorNextCheckAt: "2026-09-29T09:00:00.000Z" });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/monitorNextCheckAt/);
+    expect(res.body.error).toMatch(/executionPolicy\.monitor/);
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
   it("allows board-authored in_review repair updates without a review path", async () => {
     const issue = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
