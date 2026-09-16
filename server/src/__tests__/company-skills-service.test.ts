@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { companies, companySkills, createDb } from "@paperclipai/db";
+import {
+  activityLog, companies, companySkills, createDb } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -32,6 +33,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(companySkills);
     await db.delete(companies);
     await Promise.all(Array.from(cleanupDirs, (dir) => fs.rm(dir, { recursive: true, force: true })));

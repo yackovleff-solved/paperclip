@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { parse as parseEnvContents } from "dotenv";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  activityLog,
   agents,
   companies,
   createDb,
@@ -2929,6 +2930,7 @@ describeEmbeddedPostgres("workspace runtime startup reconciliation", () => {
   });
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(workspaceRuntimeServices);
     await db.delete(executionWorkspaces);
     await db.delete(projectWorkspaces);

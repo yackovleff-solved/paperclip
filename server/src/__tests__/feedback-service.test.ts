@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { writePaperclipSkillSyncPreference } from "@paperclipai/adapter-utils/server-utils";
 import {
+  activityLog,
   agents,
   companies,
   companySkills,
@@ -42,6 +43,7 @@ describe("feedbackService.saveIssueVote", () => {
   }, 120_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(feedbackExports);
     await db.delete(feedbackVotes);
     await db.delete(instanceSettings);

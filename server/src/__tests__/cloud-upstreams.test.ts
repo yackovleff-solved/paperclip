@@ -1,6 +1,7 @@
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { companies, cloudUpstreamConnections, cloudUpstreamRuns, companySkills, createDb } from "@paperclipai/db";
+import {
+  activityLog, companies, cloudUpstreamConnections, cloudUpstreamRuns, companySkills, createDb } from "@paperclipai/db";
 
 import { HttpError } from "../errors.js";
 import {
@@ -80,6 +81,7 @@ describeEmbeddedPostgres("cloud upstream persistence", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     vi.restoreAllMocks();
     await db.delete(cloudUpstreamRuns);
     await db.delete(cloudUpstreamConnections);

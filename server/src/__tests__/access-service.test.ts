@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  activityLog,
   agents,
   companies,
   companyMemberships,
@@ -56,6 +57,7 @@ describeEmbeddedPostgres("access service", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(issues);
     await db.delete(principalPermissionGrants);
     await db.delete(instanceUserRoles);
