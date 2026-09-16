@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  activityLog,
   companies,
   createDb,
   documentRevisions,
@@ -36,6 +37,7 @@ describeEmbeddedPostgres("documentService system issue documents", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(documentRevisions);
     await db.delete(issueDocuments);
     await db.delete(documents);

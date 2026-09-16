@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  activityLog,
   companies,
   createDb,
   documentAnnotationAnchorSnapshots,
@@ -52,6 +53,7 @@ describeEmbeddedPostgres("documentAnnotationService", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(documentAnnotationAnchorSnapshots);
     await db.delete(documentAnnotationComments);
     await db.delete(documentAnnotationThreads);
