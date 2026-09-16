@@ -2339,6 +2339,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
   }
 
   async function reconcileStrandedAssignedIssues() {
+    const now = new Date();
     const candidates = await db
       .select()
       .from(issues)
@@ -2359,6 +2360,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       orphanBlockersAssigned: 0,
       successfulRunHandoffEscalated: 0,
       escalated: 0,
+      monitorScheduled: 0,
       skipped: 0,
       issueIds: [] as string[],
     };
@@ -2377,6 +2379,17 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       }
 
       if (await hasActiveExecutionPath(issue.companyId, issue.id)) {
+        result.skipped += 1;
+        continue;
+      }
+
+      if (issue.monitorNextCheckAt && issue.monitorNextCheckAt.getTime() > now.getTime()) {
+        // An armed executionState.monitor already owns this issue's next wake-up
+        // (see tickDueIssueMonitors). Without this check, an in-progress issue that
+        // is idle between monitor checks looks identical to a stranded execution
+        // path and gets re-queued for issue_continuation_needed on every reconcile
+        // tick, ignoring the monitor's own (often much longer) cadence (SOL-5915).
+        result.monitorScheduled += 1;
         result.skipped += 1;
         continue;
       }
