@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import {
+  activityLog,
   agents,
   companies,
   companySecretBindings,
@@ -44,6 +45,7 @@ describeEmbeddedPostgres("secretService", () => {
   });
 
   afterEach(async () => {
+    await db.delete(activityLog);
     vi.restoreAllMocks();
     await db.delete(secretAccessEvents);
     await db.delete(companySecretBindings);

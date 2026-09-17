@@ -19,6 +19,7 @@ import path from "node:path";
 import { eq, and } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  activityLog,
   agents,
   companies,
   companySecretBindings,
@@ -58,6 +59,7 @@ describeEmbedded("PAP-9522 QA: routine secrets end-to-end", () => {
   }, 30_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(secretAccessEvents);
     await db.delete(companySecretBindings);
     await db.delete(routineRuns);

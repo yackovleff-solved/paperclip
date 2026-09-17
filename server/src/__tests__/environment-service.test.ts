@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { agents, companies, createDb, environmentLeases, environments, heartbeatRuns } from "@paperclipai/db";
+import {
+  activityLog, agents, companies, createDb, environmentLeases, environments, heartbeatRuns } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -30,6 +31,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
   });
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(environmentLeases);
     await db.delete(heartbeatRuns);
     await db.delete(agents);

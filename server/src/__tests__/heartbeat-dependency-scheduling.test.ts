@@ -142,7 +142,19 @@ describeEmbeddedPostgres("heartbeat dependency-aware queued run selection", () =
     await db.delete(agents);
     await db.delete(companySkills);
     await db.delete(environments);
-    await db.delete(companies);
+    try {
+      await db.delete(companies);
+    } catch {
+      // A detached background run (heartbeat.ts void executeRun(), same
+      // class as SOL-5927/SOL-5930) can still be upserting bundled skills
+      // via ensureSkillInventoryCurrent() after its heartbeatRuns row
+      // already flipped to "succeeded" but before its side-effect tail
+      // fully drains, so it can slip a company_skills row in after the
+      // delete above and race the delete on companies. Clear it and retry
+      // once rather than trying to time the drain exactly.
+      await db.delete(companySkills);
+      await db.delete(companies);
+    }
   });
 
   afterAll(async () => {

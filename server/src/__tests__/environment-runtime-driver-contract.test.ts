@@ -12,6 +12,7 @@ import {
   type SshEnvironmentConfig,
 } from "@paperclipai/adapter-utils/ssh";
 import {
+  activityLog,
   agents,
   companies,
   companySecretVersions,
@@ -62,6 +63,7 @@ describeEmbeddedPostgres("environment runtime driver contract", () => {
   });
 
   afterEach(async () => {
+    await db.delete(activityLog);
     while (fixtureRoots.length > 0) {
       const root = fixtureRoots.pop();
       if (!root) continue;
