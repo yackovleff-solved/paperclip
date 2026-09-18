@@ -323,7 +323,10 @@ jobs:
         run: node scripts/cloud-source-verification.mjs "$SOURCE_SHA"
 
   publish_canary:
-    if: github.event_name == 'push'
+    # npm publishing uses trusted publishing (OIDC), which is bound to the
+    # canonical repo on npmjs.org. Forks have no publish rights to the
+    # @paperclipai scope, so skip rather than fail with ENEEDAUTH.
+    if: github.event_name == 'push' && github.repository == 'paperclipai/paperclip'
     needs: verify_canary
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -1268,7 +1271,9 @@ jobs:
           ./scripts/release.sh "${args[@]}"
 
   publish_stable:
-    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'stable' && !inputs.dry_run
+    # See publish_canary: npm trusted publishing is bound to the canonical
+    # repo, so forks skip this job instead of failing with ENEEDAUTH.
+    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'stable' && !inputs.dry_run && github.repository == 'paperclipai/paperclip'
     needs: [preflight_stable, verify_stable]
     runs-on: ubuntu-latest
     timeout-minutes: 90

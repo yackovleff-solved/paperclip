@@ -159,6 +159,7 @@ describeEmbeddedPostgres("secretService", () => {
   });
 
   afterEach(async () => {
+    await db.delete(activityLog);
     vi.restoreAllMocks();
     await db.delete(activityLog);
     await db.delete(secretAccessEvents);

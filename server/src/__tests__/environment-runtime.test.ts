@@ -11,6 +11,7 @@ import {
   stopSshEnvLabFixture,
 } from "@paperclipai/adapter-utils/ssh";
 import {
+  activityLog,
   agents,
   builtInManagedResources,
   companies,
@@ -199,6 +200,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
   });
 
   afterEach(async () => {
+    await db.delete(activityLog);
     if (orphanCleanupSpoolDir) {
       await rm(orphanCleanupSpoolDir, { recursive: true, force: true }).catch(() => undefined);
       orphanCleanupSpoolDir = null;

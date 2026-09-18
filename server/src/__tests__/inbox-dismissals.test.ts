@@ -45,6 +45,7 @@ describeEmbeddedPostgres("inbox dismissals", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(inboxDismissals);
     await db.delete(joinRequests);
     await db.delete(invites);

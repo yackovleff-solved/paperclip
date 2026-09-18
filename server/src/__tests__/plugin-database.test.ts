@@ -5,6 +5,7 @@ import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  activityLog,
   companies,
   createDb,
   issueRelations,
@@ -319,6 +320,7 @@ describeEmbeddedPostgres("plugin database namespaces", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     for (const pluginKey of ["paperclip.dbtest", "paperclip.escape", "paperclip.refresh", multiMigrationPluginKey, llmWikiPluginKey]) {
       const namespace = derivePluginDatabaseNamespace(pluginKey);
       await db.execute(sql.raw(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`));

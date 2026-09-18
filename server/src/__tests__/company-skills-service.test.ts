@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import {
+  activityLog,
   agents,
   authUsers,
   companies,
@@ -66,6 +67,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     for (const skill of await db.select().from(companySkills)) {
       await removeRuntimeSkillCache(path.join(paperclipHome!, "instances", "default", "skills", skill.companyId), skill.id);
     }
+    await db.delete(activityLog);
     await db.delete(agents);
     await db.delete(companySkills);
     await db.delete(projectWorkspaces);
