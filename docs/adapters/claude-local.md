@@ -63,3 +63,16 @@ Use the "Test Environment" button in the UI to validate the adapter config. It c
 - Working directory is absolute and available (auto-created if missing and permitted)
 - API key/auth mode hints (`ANTHROPIC_API_KEY` vs subscription login)
 - A live hello probe (`claude --print - --output-format stream-json --verbose` with prompt `Respond with hello.`) to verify CLI readiness
+
+## CLI Version Pin
+
+`Dockerfile` and `docker/untrusted-review/Dockerfile` install `@anthropic-ai/claude-code`, `@openai/codex`, and `opencode-ai` at pinned versions rather than `@latest`, so upstream CLI releases only reach these images through a reviewed bump. When bumping the pin:
+
+1. Name the target version and the changelog range being crossed in the PR description.
+2. Run the CLAUDE.md propagation smoke test before merging:
+
+   ```sh
+   pnpm --filter @paperclipai/adapter-claude-local smoke:claude-md
+   ```
+
+   This runs a real, non-mocked `claude --print` headless session against a fixture `CLAUDE.md` and asserts a unique marker from that file reaches the model's response. `prepareClaudeConfigSeed` (`packages/adapters/claude-local/src/server/claude-config.ts`) seeds `CLAUDE.md` into `CLAUDE_CONFIG_DIR` and relies entirely on the native CLI's own file-discovery to load it — Paperclip never injects that content itself — so a CLI change to memory-file loading in headless/SDK mode (e.g. claude-code changelog 2.1.274, which dropped per-directory `CLAUDE.md` lookup for headless/SDK sessions) would otherwise fail silently.
