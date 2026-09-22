@@ -50,7 +50,8 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "probe:quota": "pnpm exec tsx src/cli/quota-probe.ts --json",
-    "probe:quota:raw": "pnpm exec tsx src/cli/quota-probe.ts --json --raw-cli"
+    "probe:quota:raw": "pnpm exec tsx src/cli/quota-probe.ts --json --raw-cli",
+    "smoke:claude-md": "pnpm exec tsx src/cli/smoke-claude-md.ts"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "^0.73.0",
