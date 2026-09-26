@@ -16,7 +16,7 @@ export const statusDecisionEffects = pgTable(
   "status_decision_effects",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull(),
     decisionId: uuid("decision_id").notNull(),
     ordinal: integer("ordinal").notNull(),

@@ -21,7 +21,7 @@ export const nativeRunFinalizations = pgTable(
   "native_run_finalizations",
   {
     runId: uuid("run_id").primaryKey(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull(),
     phase: text("phase").notNull(),
     attempt: integer("attempt").notNull().default(0),

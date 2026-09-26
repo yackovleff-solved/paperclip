@@ -6,6 +6,8 @@ import {
   agentConfigRevisions,
   agents,
   agentWakeupRequests,
+  budgetIncidents,
+  budgetPolicies,
   builtInManagedResources,
   cases,
   companies,
@@ -15,6 +17,7 @@ import {
   createDb,
   heartbeatRunEvents,
   heartbeatRuns,
+  inboxDismissals,
   issues,
   principalPermissionGrants,
   routines,
@@ -921,6 +924,56 @@ describeEmbeddedPostgres("companyService", () => {
     await expect(svc.getById("tumbly-haus-creative")).resolves.toBeNull();
     await expect(svc.getById("not-a-uuid")).resolves.toBeNull();
     await expect(svc.getById("")).resolves.toBeNull();
+  });
+
+  it("remove() hard-deletes a company with rows in tables its manual cleanup list omits (SOL-6075 FK cascade audit)", async () => {
+    const svc = companyService(db);
+    const created = await svc.create({ name: "Doomed Co" });
+    const companyId = created.id;
+
+    await db.insert(inboxDismissals).values({
+      companyId,
+      userId: "user-1",
+      itemKey: "issue:some-issue",
+    });
+    const [policy] = await db
+      .insert(budgetPolicies)
+      .values({
+        companyId,
+        scopeType: "company",
+        scopeId: companyId,
+        windowKind: "monthly",
+      })
+      .returning();
+    await db.insert(budgetIncidents).values({
+      companyId,
+      policyId: policy.id,
+      scopeType: "company",
+      scopeId: companyId,
+      metric: "billed_cents",
+      windowKind: "monthly",
+      windowStart: new Date(),
+      windowEnd: new Date(),
+      thresholdType: "hard_stop",
+      amountLimit: 1000,
+      amountObserved: 1500,
+    });
+
+    // Prior to the companies.id FK cascade audit, none of inbox_dismissals,
+    // budget_policies, or budget_incidents were in remove()'s manual delete
+    // list, so this would fail with a foreign key violation.
+    await expect(svc.remove(companyId)).resolves.toMatchObject({ id: companyId });
+
+    const [dismissals, policies, incidents, remainingCompany] = await Promise.all([
+      db.select().from(inboxDismissals).where(eq(inboxDismissals.companyId, companyId)),
+      db.select().from(budgetPolicies).where(eq(budgetPolicies.companyId, companyId)),
+      db.select().from(budgetIncidents).where(eq(budgetIncidents.companyId, companyId)),
+      db.select().from(companies).where(eq(companies.id, companyId)),
+    ]);
+    expect(dismissals).toHaveLength(0);
+    expect(policies).toHaveLength(0);
+    expect(incidents).toHaveLength(0);
+    expect(remainingCompany).toHaveLength(0);
   });
 
   describe("issue prefix re-derivation on rename", () => {

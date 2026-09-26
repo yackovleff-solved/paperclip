@@ -17,7 +17,7 @@ export const nativeRunResults = pgTable(
   "native_run_results",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull(),
     runId: uuid("run_id").notNull(),
     turnId: text("turn_id"),

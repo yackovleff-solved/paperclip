@@ -21,7 +21,7 @@ export const workAssessments = pgTable(
   "work_assessments",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull(),
     runId: uuid("run_id").notNull(),
     turnId: text("turn_id"),
@@ -30,7 +30,11 @@ export const workAssessments = pgTable(
     triggerKind: text("trigger_kind").notNull(),
     triggerRef: text("trigger_ref"),
     triggerCapability: text("trigger_capability"),
-    triggerActorCompanyId: uuid("trigger_actor_company_id").notNull().references(() => companies.id),
+    // Check constraint below currently forces this to equal companyId; cascade here too so
+    // company deletion isn't blocked by this FK referencing the same row.
+    triggerActorCompanyId: uuid("trigger_actor_company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
     priorIssueStatus: text("prior_issue_status").notNull(),
     priorStatusVersion: bigint("prior_status_version", { mode: "number" }).notNull(),
     priorDecisionId: uuid("prior_decision_id"),

@@ -16,7 +16,7 @@ export const completionContracts = pgTable(
   "completion_contracts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull(),
     revision: integer("revision").notNull(),
     schemaVersion: text("schema_version").notNull(),

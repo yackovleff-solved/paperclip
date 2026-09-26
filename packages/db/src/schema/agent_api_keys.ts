@@ -8,7 +8,7 @@ export const agentApiKeys = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     agentId: uuid("agent_id").notNull().references(() => agents.id),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     keyHash: text("key_hash").notNull(),
     responsibleUserId: text("responsible_user_id"),
