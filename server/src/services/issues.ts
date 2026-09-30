@@ -11673,8 +11673,8 @@ export function issueService(db: Db) {
       id: string,
       actorAgentId?: string,
       actorRunId?: string | null,
-    ) =>
-      db.transaction(async (tx) => {
+    ) => {
+      const result = await db.transaction(async (tx) => {
         await tx.execute(
           sql`select ${issues.id} from ${issues} where ${issues.id} = ${id} for update`,
         );
@@ -11732,27 +11732,34 @@ export function issueService(db: Db) {
           .then((rows) => rows[0] ?? null);
         if (!updated) return null;
         const [enriched] = await withIssueLabels(tx, [updated]);
-        if (existing.status !== enriched.status) {
-          await logIssueStatusChange(tx, {
-            companyId: existing.companyId,
-            actorType: actorAgentId ? "agent" : "system",
-            actorId: actorAgentId ?? "issue_service",
-            agentId: actorAgentId ?? null,
-            runId: actorRunId ?? null,
-            issueId: existing.id,
-            identifier: enriched.identifier,
-            fromStatus: existing.status,
-            toStatus: enriched.status,
-            source: "issue_service.release",
-          }).catch((err) => {
-            logger.warn(
-              { err, issueId: existing.id, fromStatus: existing.status, toStatus: enriched.status },
-              "failed to record issue.status_changed activity from issue_service.release",
-            );
-          });
-        }
-        return enriched;
-      }),
+        return { existing, enriched };
+      });
+      if (!result) return null;
+      const { existing, enriched } = result;
+      // Log after commit (like update()/checkout() above): logActivity publishes
+      // the live event immediately, and doing that from inside the transaction
+      // would announce a status change that a later rollback could still undo.
+      if (existing.status !== enriched.status) {
+        await logIssueStatusChange(db, {
+          companyId: existing.companyId,
+          actorType: actorAgentId ? "agent" : "system",
+          actorId: actorAgentId ?? "issue_service",
+          agentId: actorAgentId ?? null,
+          runId: actorRunId ?? null,
+          issueId: existing.id,
+          identifier: enriched.identifier,
+          fromStatus: existing.status,
+          toStatus: enriched.status,
+          source: "issue_service.release",
+        }).catch((err) => {
+          logger.warn(
+            { err, issueId: existing.id, fromStatus: existing.status, toStatus: enriched.status },
+            "failed to record issue.status_changed activity from issue_service.release",
+          );
+        });
+      }
+      return enriched;
+    },
 
     adminForceRelease: async (
       id: string,
