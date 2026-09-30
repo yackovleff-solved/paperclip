@@ -743,6 +743,22 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
         };
       }
 
+      if (requestedStatus === "blocked") {
+        if (!input.commentBody?.trim()) {
+          throw unprocessable("Recording a blocked review decision requires a comment");
+        }
+        patch.status = "blocked";
+        return {
+          patch,
+          decision: {
+            stageId: activeStage.id,
+            stageType: activeStage.type,
+            outcome: "blocked",
+            body: input.commentBody.trim(),
+          },
+        };
+      }
+
       if (requestedStatus && requestedStatus !== "in_review") {
         if (!input.commentBody?.trim()) {
           throw unprocessable("Requesting changes requires a comment");
