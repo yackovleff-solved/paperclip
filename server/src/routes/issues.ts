@@ -120,6 +120,36 @@ const updateIssueRouteSchema = updateIssueSchema.extend({
   interrupt: z.boolean().optional(),
 });
 
+// These fields are derived from executionPolicy.monitor by the server and are not
+// part of updateIssueSchema, so a PATCH that sets them directly is silently stripped
+// by validate() before the handler ever runs (SOL-5899). Reject explicitly instead so
+// callers get pointed at the real re-arm path: PATCH executionPolicy.monitor together
+// with status in_progress/in_review.
+const COMPUTED_ISSUE_MONITOR_FIELDS = [
+  "monitorNextCheckAt",
+  "monitorWakeRequestedAt",
+  "monitorLastTriggeredAt",
+  "monitorAttemptCount",
+  "monitorNotes",
+  "monitorScheduledBy",
+  "executionState",
+] as const;
+
+function rejectDirectIssueMonitorFieldMutation(req: Request, res: Response, next: () => void) {
+  const body = req.body as Record<string, unknown> | null | undefined;
+  const rejectedFields = body
+    ? COMPUTED_ISSUE_MONITOR_FIELDS.filter((field) => Object.prototype.hasOwnProperty.call(body, field))
+    : [];
+  if (rejectedFields.length > 0) {
+    res.status(422).json({
+      error: `These fields are server-computed and cannot be set directly: ${rejectedFields.join(", ")}. ` +
+        "To schedule or re-arm a monitor, PATCH executionPolicy.monitor together with status: \"in_progress\" or \"in_review\".",
+    });
+    return;
+  }
+  next();
+}
+
 type ParsedExecutionState = NonNullable<ReturnType<typeof parseIssueExecutionState>>;
 type NormalizedExecutionPolicy = NonNullable<ReturnType<typeof normalizeIssueExecutionPolicy>>;
 type IssueRouteSnapshot = typeof issueRows.$inferSelect;
@@ -3751,7 +3781,7 @@ export function issueRoutes(
     res.json(result);
   });
 
-  router.patch("/issues/:id", validate(updateIssueRouteSchema), async (req, res) => {
+  router.patch("/issues/:id", rejectDirectIssueMonitorFieldMutation, validate(updateIssueRouteSchema), async (req, res) => {
     const id = req.params.id as string;
     const existing = await svc.getById(id);
     if (!existing) {
