@@ -6,7 +6,13 @@ export type AgentSkillState =
   | "installed"
   | "missing"
   | "stale"
-  | "external";
+  | "external"
+  /**
+   * ASI09/SOL-3191 (layer-b Step 1, default-OFF behind
+   * PAPERCLIP_SKILL_SIGNATURE_ENFORCE). A company_managed root that failed
+   * cosign signature verification while enforcement was on.
+   */
+  | "blocked_unsigned";
 
 export type AgentSkillOrigin =
   | "company_managed"
