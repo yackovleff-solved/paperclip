@@ -19,6 +19,7 @@ END $$;--> statement-breakpoint
 -- advances over this partial index by comment id, so each eligible slice is
 -- visited once instead of re-scanning issue_comments from the beginning on
 -- every batch.
+-- paperclip:migration-safety-ignore large-create-index-not-concurrently: Drizzle migrations run transactionally, so CONCURRENTLY is unavailable. This partial index is dropped again at the end of the same migration and only exists to support the backfill loop above.
 CREATE INDEX IF NOT EXISTS "issue_comments_derived_attribution_backfill_idx"
 	ON "issue_comments" USING btree ("id")
 	WHERE "author_agent_id" IS NULL
