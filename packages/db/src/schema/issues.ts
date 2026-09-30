@@ -26,7 +26,7 @@ export const issues = pgTable(
   "issues",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     // Conversation identity and session boundaries are owned by the server.
     conversationAgentId: uuid("conversation_agent_id").references(() => agents.id),
     conversationUserId: text("conversation_user_id"),

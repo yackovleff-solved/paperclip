@@ -1119,6 +1119,13 @@ async function prepareClaudeSkillRuntime(input: {
     const target = path.join(skillsHome, entry.runtimeName);
     try {
       const result = await materializePaperclipSkillCopy(entry.source, target);
+      if (result.blocked) {
+        await input.onLog(
+          "stderr",
+          `[paperclip] Blocked ACPX Claude skill "${entry.key}": signature verification failed (ASI09/SOL-3191 fail-closed enforcement) — ${result.blockedReason}\n`,
+        );
+        continue;
+      }
       const skillMdStat = await fs.stat(path.join(target, "SKILL.md")).catch(() => null);
       if (!skillMdStat?.isFile()) {
         await fs.rm(target, { recursive: true, force: true });
@@ -1303,6 +1310,13 @@ async function prepareCodexSkillRuntime(input: {
     const target = path.join(skillsHome, entry.runtimeName);
     try {
       const result = await materializePaperclipSkillCopy(entry.source, target);
+      if (result.blocked) {
+        await input.onLog(
+          "stderr",
+          `[paperclip] Blocked ACPX Codex skill "${entry.key}": signature verification failed (ASI09/SOL-3191 fail-closed enforcement) — ${result.blockedReason}\n`,
+        );
+        continue;
+      }
       if (result.skippedSymlinks.length > 0) {
         await input.onLog(
           "stdout",

@@ -9,7 +9,7 @@ export const issueInboxArchives = pgTable(
   "issue_inbox_archives",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull().references(() => issues.id, { onDelete: "cascade" }),
     userId: text("user_id").notNull(),
     archivedByActorType: text("archived_by_actor_type").$type<"user" | "agent">().notNull().default("user"),

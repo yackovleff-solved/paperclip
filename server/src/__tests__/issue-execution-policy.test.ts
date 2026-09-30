@@ -466,6 +466,77 @@ describe("issue execution policy transitions", () => {
     });
   });
 
+  describe("blocked review decision", () => {
+    const policy = twoStagePolicy();
+    const reviewStageId = policy.stages[0].id;
+
+    it("reviewer records blocked → stage stays pending, status is not coerced to in_progress", () => {
+      const executionState = {
+        status: "pending" as const,
+        currentStageId: reviewStageId,
+        currentStageIndex: 0,
+        currentStageType: "review" as const,
+        currentParticipant: { type: "agent" as const, agentId: qaAgentId },
+        returnAssignee: { type: "agent" as const, agentId: coderAgentId },
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+      };
+      const result = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_review",
+          assigneeAgentId: qaAgentId,
+          assigneeUserId: null,
+          executionPolicy: policy,
+          executionState,
+        },
+        policy,
+        requestedStatus: "blocked",
+        requestedAssigneePatch: {},
+        actor: { agentId: qaAgentId },
+        commentBody: "Blocked by SOL-5511, cannot render a review verdict yet",
+      });
+
+      expect(result.patch.status).toBe("blocked");
+      expect(result.patch.assigneeAgentId).toBeUndefined();
+      expect(result.patch.executionState).toBeUndefined();
+      expect(result.decision).toMatchObject({
+        stageId: reviewStageId,
+        stageType: "review",
+        outcome: "blocked",
+      });
+    });
+
+    it("blocked review decision without comment throws", () => {
+      expect(() =>
+        applyIssueExecutionPolicyTransition({
+          issue: {
+            status: "in_review",
+            assigneeAgentId: qaAgentId,
+            assigneeUserId: null,
+            executionPolicy: policy,
+            executionState: {
+              status: "pending",
+              currentStageId: reviewStageId,
+              currentStageIndex: 0,
+              currentStageType: "review",
+              currentParticipant: { type: "agent", agentId: qaAgentId },
+              returnAssignee: { type: "agent", agentId: coderAgentId },
+              completedStageIds: [],
+              lastDecisionId: null,
+              lastDecisionOutcome: null,
+            },
+          },
+          policy,
+          requestedStatus: "blocked",
+          requestedAssigneePatch: {},
+          actor: { agentId: qaAgentId },
+          commentBody: "",
+        }),
+      ).toThrow("requires a comment");
+    });
+  });
+
   describe("review-only policy (no approval stage)", () => {
     const policy = reviewOnlyPolicy();
     const reviewStageId = policy.stages[0].id;
