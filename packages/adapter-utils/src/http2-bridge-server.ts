@@ -100,12 +100,24 @@ export const HTTP2_BRIDGE_STREAM_RESET_RATE = 10;
 export const HTTP2_BRIDGE_STREAM_RESET_BURST = 100;
 
 /**
+ * `maxSessionInvalidFrames`/`maxSessionRejectedStreams` are documented Node
+ * http2 server options (part of the Rapid Reset mitigations, Node 20+) that
+ * are missing from the @types/node 24.12.x minor pinned in this workspace's
+ * lockfile (present again in 24.13.x). Widen locally instead of bumping the
+ * lockfile-wide @types/node resolution just for this one options object.
+ */
+type Http2BridgeServerOptions = http2.ServerOptions & {
+  maxSessionInvalidFrames?: number;
+  maxSessionRejectedStreams?: number;
+};
+
+/**
  * The full bounded options object. The server passes this object, unchanged,
  * to `http2.createServer`. A test asserts every value on this object, so it
  * proves the running server actually carries the bound, not only that the
  * named constant exists.
  */
-export const HTTP2_BRIDGE_SERVER_OPTIONS: http2.ServerOptions = {
+export const HTTP2_BRIDGE_SERVER_OPTIONS: Http2BridgeServerOptions = {
   settings: {
     enablePush: HTTP2_BRIDGE_ENABLE_PUSH,
     maxConcurrentStreams: HTTP2_BRIDGE_MAX_CONCURRENT_STREAMS,
