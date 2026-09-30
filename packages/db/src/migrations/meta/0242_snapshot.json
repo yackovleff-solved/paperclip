@@ -1,6 +1,6 @@
 {
-  "id": "ab855f2b-4847-427f-bad6-320e9a988a76",
-  "prevId": "46b78d2a-bb6b-454c-820d-fd51dcf65885",
+  "id": "46b78d2a-bb6b-454c-820d-fd51dcf65885",
+  "prevId": "d7f6fa91-15eb-49d3-9e04-1b26eecef6c4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -23051,12 +23051,6 @@
         },
         "source_comment_id": {
           "name": "source_comment_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source_identity_context_id": {
-          "name": "source_identity_context_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false

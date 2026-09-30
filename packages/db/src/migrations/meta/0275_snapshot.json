@@ -1,6 +1,6 @@
 {
-  "id": "d1a3e2cb-5f5f-4bb2-98ec-8475b445d6e6",
-  "prevId": "02bc1b0f-2d2b-4c3e-9320-b085bade9f09",
+  "id": "02bc1b0f-2d2b-4c3e-9320-b085bade9f09",
+  "prevId": "d01dd077-2ab3-494b-962c-02b219026b64",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6505,22 +6505,6 @@
           "method": "btree",
           "with": {}
         },
-        "chat_endpoints_photon_number_uq": {
-          "name": "chat_endpoints_photon_number_uq",
-          "columns": [
-            {
-              "expression": "bot_external_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"chat_endpoints\".\"provider\" = 'imessage-photon' and \"chat_endpoints\".\"status\" <> 'archived' and \"chat_endpoints\".\"bot_external_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "chat_endpoints_live_discord_bot_external_uq": {
           "name": "chat_endpoints_live_discord_bot_external_uq",
           "columns": [
@@ -6679,7 +6663,7 @@
         },
         "chat_endpoints_provider_check": {
           "name": "chat_endpoints_provider_check",
-          "value": "\"chat_endpoints\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon')"
+          "value": "\"chat_endpoints\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail')"
         },
         "chat_endpoints_status_check": {
           "name": "chat_endpoints_status_check",
@@ -6864,7 +6848,7 @@
       "checkConstraints": {
         "chat_external_principals_provider_check": {
           "name": "chat_external_principals_provider_check",
-          "value": "\"chat_external_principals\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon')"
+          "value": "\"chat_external_principals\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail')"
         },
         "chat_external_principals_kind_check": {
           "name": "chat_external_principals_kind_check",

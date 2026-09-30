@@ -1,6 +1,6 @@
 {
-  "id": "cc2ff211-808d-41ff-ba78-afcf0a945864",
-  "prevId": "03fb5599-6390-4497-ad7c-d43e02a7be47",
+  "id": "03fb5599-6390-4497-ad7c-d43e02a7be47",
+  "prevId": "5129d326-4e5f-40bf-81ee-b2cc6f1506cf",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -26147,50 +26147,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "controller_boot_id": {
-          "name": "controller_boot_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "controller_pid": {
-          "name": "controller_pid",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "controller_process_started_at": {
-          "name": "controller_process_started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "controller_generation": {
-          "name": "controller_generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "recovery_state": {
-          "name": "recovery_state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recovery_request_id": {
-          "name": "recovery_request_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recovery_history": {
-          "name": "recovery_history",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "result_id": {
           "name": "result_id",

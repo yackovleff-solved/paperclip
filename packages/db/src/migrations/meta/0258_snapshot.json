@@ -1,6 +1,6 @@
 {
-  "id": "2554d3f8-4867-4868-af6c-4dcb3ee4de4a",
-  "prevId": "f9c47e49-21af-4744-8bcb-d949e39663b9",
+  "id": "f9c47e49-21af-4744-8bcb-d949e39663b9",
+  "prevId": "4004d3fa-4522-4568-af4e-0a3c2df05604",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7223,7 +7223,7 @@
       "checkConstraints": {
         "chat_publications_state_check": {
           "name": "chat_publications_state_check",
-          "value": "\"chat_publications\".\"state\" in ('pending', 'streaming', 'published', 'retry', 'delivery_unknown', 'failed', 'cancelled')"
+          "value": "\"chat_publications\".\"state\" in ('pending', 'streaming', 'published', 'retry', 'failed', 'cancelled')"
         }
       },
       "isRLSEnabled": false

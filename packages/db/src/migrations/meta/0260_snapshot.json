@@ -1,6 +1,6 @@
 {
-  "id": "140a2ba4-8d1e-4053-99a3-1c041ecd68c1",
-  "prevId": "194dc0a9-e6dd-4f91-889b-d5b429d268a8",
+  "id": "194dc0a9-e6dd-4f91-889b-d5b429d268a8",
+  "prevId": "2554d3f8-4867-4868-af6c-4dcb3ee4de4a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1863,7 +1863,7 @@
             }
           ],
           "isUnique": true,
-          "where": "(\"agent_wakeup_requests\".\"idempotency_key\" LIKE 'question-response:%' OR \"agent_wakeup_requests\".\"idempotency_key\" LIKE 'interaction:%') AND \"agent_wakeup_requests\".\"status\" NOT IN ('skipped', 'failed', 'cancelled')",
+          "where": "\"agent_wakeup_requests\".\"idempotency_key\" LIKE 'question-response:%' AND \"agent_wakeup_requests\".\"status\" NOT IN ('skipped', 'failed', 'cancelled')",
           "concurrently": false,
           "method": "btree",
           "with": {}

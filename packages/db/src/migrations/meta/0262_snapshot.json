@@ -1,6 +1,6 @@
 {
-  "id": "f55749c8-072a-40b0-885d-25c6c89aa602",
-  "prevId": "ea31f607-d08b-42be-a396-fc6797c53f7e",
+  "id": "ea31f607-d08b-42be-a396-fc6797c53f7e",
+  "prevId": "140a2ba4-8d1e-4053-99a3-1c041ecd68c1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6348,28 +6348,6 @@
           ],
           "isUnique": true,
           "where": "\"chat_endpoints\".\"status\" in ('verifying', 'active', 'paused', 'attention')\n          and \"chat_endpoints\".\"provider_account_id\" is not null\n          and \"chat_endpoints\".\"bot_external_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "chat_endpoints_live_discord_bot_external_uq": {
-          "name": "chat_endpoints_live_discord_bot_external_uq",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "bot_external_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"chat_endpoints\".\"provider\" = 'discord'\n          and \"chat_endpoints\".\"status\" in ('verifying', 'active', 'paused', 'attention')\n          and \"chat_endpoints\".\"bot_external_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

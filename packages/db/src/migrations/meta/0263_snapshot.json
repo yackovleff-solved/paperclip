@@ -1,6 +1,6 @@
 {
-  "id": "49453b29-7f09-4a92-a9d6-144a2d1ea763",
-  "prevId": "f55749c8-072a-40b0-885d-25c6c89aa602",
+  "id": "f55749c8-072a-40b0-885d-25c6c89aa602",
+  "prevId": "ea31f607-d08b-42be-a396-fc6797c53f7e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6370,28 +6370,6 @@
           ],
           "isUnique": true,
           "where": "\"chat_endpoints\".\"provider\" = 'discord'\n          and \"chat_endpoints\".\"status\" in ('verifying', 'active', 'paused', 'attention')\n          and \"chat_endpoints\".\"bot_external_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "chat_endpoints_live_global_app_bot_external_uq": {
-          "name": "chat_endpoints_live_global_app_bot_external_uq",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "bot_external_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"chat_endpoints\".\"provider\" in ('github', 'microsoft-teams')\n          and \"chat_endpoints\".\"status\" in ('verifying', 'active', 'paused', 'attention')\n          and \"chat_endpoints\".\"bot_external_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

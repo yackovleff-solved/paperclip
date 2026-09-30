@@ -1,6 +1,6 @@
 {
-  "id": "20f518e5-18e3-41c4-b398-f70ed56f2067",
-  "prevId": "7421f0b4-8909-43f8-affb-64b650d66806",
+  "id": "7421f0b4-8909-43f8-affb-64b650d66806",
+  "prevId": "f625870c-bd49-45fa-a26d-d4ac38d184b0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8416,6 +8416,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "decision_queues_id_company_uq": {
+          "name": "decision_queues_id_company_uq",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -8473,16 +8494,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "decision_queues_id_company_uq": {
-          "name": "decision_queues_id_company_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "company_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
         "decision_queues_creator_check": {

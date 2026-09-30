@@ -1,6 +1,6 @@
 {
-  "id": "6f6cff23-c283-4984-91e4-da2c3541ff4a",
-  "prevId": "50f4e443-e69e-48c7-89e2-6a3a2582dd96",
+  "id": "50f4e443-e69e-48c7-89e2-6a3a2582dd96",
+  "prevId": "b7788149-64e9-4273-b400-91828a0402bb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -17163,8 +17163,8 @@
         }
       },
       "indexes": {
-        "heartbeat_run_events_run_seq_uq": {
-          "name": "heartbeat_run_events_run_seq_uq",
+        "heartbeat_run_events_run_seq_idx": {
+          "name": "heartbeat_run_events_run_seq_idx",
           "columns": [
             {
               "expression": "run_id",
@@ -17179,7 +17179,7 @@
               "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

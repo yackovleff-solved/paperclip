@@ -1,6 +1,6 @@
 {
-  "id": "84cd6342-47c7-4a9d-9e0d-c0b713c76af7",
-  "prevId": "1e06c040-9de8-4fb0-974a-7487f64abd00",
+  "id": "1e06c040-9de8-4fb0-974a-7487f64abd00",
+  "prevId": "ab855f2b-4847-427f-bad6-320e9a988a76",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -33689,6 +33689,19 @@
             "id"
           ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "run_identity_contexts_run_id_heartbeat_runs_id_fk": {
+          "name": "run_identity_contexts_run_id_heartbeat_runs_id_fk",
+          "tableFrom": "run_identity_contexts",
+          "tableTo": "heartbeat_runs",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

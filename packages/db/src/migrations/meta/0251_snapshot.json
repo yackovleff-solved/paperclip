@@ -1,6 +1,6 @@
 {
-  "id": "a266e368-bf57-47ae-ad2a-f3a9d8d5d0c1",
-  "prevId": "fce4d95e-e30c-48cb-9784-c3f6174a7265",
+  "id": "fce4d95e-e30c-48cb-9784-c3f6174a7265",
+  "prevId": "7e42ed4a-3ffc-45ff-9d38-a6f222cc4645",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -11902,28 +11902,6 @@
         }
       },
       "indexes": {
-        "heartbeat_runs_native_replacement_predecessor_uq": {
-          "name": "heartbeat_runs_native_replacement_predecessor_uq",
-          "columns": [
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "retry_of_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"heartbeat_runs\".\"scheduled_retry_reason\" = 'native_safe_replacement'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "heartbeat_runs_company_agent_started_idx": {
           "name": "heartbeat_runs_company_agent_started_idx",
           "columns": [

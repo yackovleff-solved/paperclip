@@ -1,6 +1,6 @@
 {
-  "id": "0df620d7-2e5a-4304-a98e-36c8bc550010",
-  "prevId": "8f54003b-ed12-4ab6-a3f3-c30b4284bcc7",
+  "id": "8f54003b-ed12-4ab6-a3f3-c30b4284bcc7",
+  "prevId": "66cebac9-8e3b-4060-82e4-21b52490e8ab",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -13722,7 +13722,7 @@
           "name": "environment_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "execution_workspace_id": {
           "name": "execution_workspace_id",
@@ -13973,7 +13973,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "environment_leases_execution_workspace_id_execution_workspaces_id_fk": {

@@ -1,6 +1,6 @@
 {
-  "id": "46b78d2a-bb6b-454c-820d-fd51dcf65885",
-  "prevId": "d7f6fa91-15eb-49d3-9e04-1b26eecef6c4",
+  "id": "d7f6fa91-15eb-49d3-9e04-1b26eecef6c4",
+  "prevId": "96d549ec-9cf2-4544-a47f-ed9c2b5e6db3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -24781,12 +24781,6 @@
         "origin_run_id": {
           "name": "origin_run_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "origin_identity_context_id": {
-          "name": "origin_identity_context_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },

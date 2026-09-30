@@ -1,6 +1,6 @@
 {
-  "id": "092c7808-7c68-4c95-82b9-07bc2244fbb8",
-  "prevId": "3e48a0d7-61e6-498a-8c1d-597d1009fa49",
+  "id": "3e48a0d7-61e6-498a-8c1d-597d1009fa49",
+  "prevId": "d5ab7076-afcc-44c8-842a-46f69eadcd7d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -325,12 +325,6 @@
         "failure_reason": {
           "name": "failure_reason",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "result_claim": {
-          "name": "result_claim",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

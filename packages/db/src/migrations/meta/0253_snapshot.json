@@ -1,6 +1,6 @@
 {
-  "id": "034ca81e-d021-480f-a4ea-39b0ced315f1",
-  "prevId": "c80449f1-0b82-4e28-8008-25644b2ba9c5",
+  "id": "c80449f1-0b82-4e28-8008-25644b2ba9c5",
+  "prevId": "a266e368-bf57-47ae-ad2a-f3a9d8d5d0c1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -11563,12 +11563,6 @@
         "execution_control_deadline_at": {
           "name": "execution_control_deadline_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "execution_status_delivery_id": {
-          "name": "execution_status_delivery_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },

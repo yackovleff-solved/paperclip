@@ -1,6 +1,6 @@
 {
-  "id": "6cfb5c0b-69cc-4e35-9d70-9b1d844464f4",
-  "prevId": "dce9ba99-7df0-4a66-9d65-a2b10ce524e5",
+  "id": "dce9ba99-7df0-4a66-9d65-a2b10ce524e5",
+  "prevId": "977e9c22-4bc6-4f08-bd5b-be38fce4eb79",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -46667,18 +46667,7 @@
   },
   "enums": {},
   "schemas": {},
-  "sequences": {
-    "public.chat_telegram_draft_ids": {
-      "name": "chat_telegram_draft_ids",
-      "schema": "public",
-      "increment": "1",
-      "startWith": "1",
-      "minValue": "1",
-      "maxValue": "2147483647",
-      "cache": "1",
-      "cycle": false
-    }
-  },
+  "sequences": {},
   "roles": {},
   "policies": {},
   "views": {},

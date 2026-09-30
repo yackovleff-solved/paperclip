@@ -1,6 +1,6 @@
 {
-  "id": "3e48a0d7-61e6-498a-8c1d-597d1009fa49",
-  "prevId": "d5ab7076-afcc-44c8-842a-46f69eadcd7d",
+  "id": "d5ab7076-afcc-44c8-842a-46f69eadcd7d",
+  "prevId": "6cfb5c0b-69cc-4e35-9d70-9b1d844464f4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5462,19 +5462,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "chat_conversations_resource_id_chat_endpoint_resources_id_fk": {
-          "name": "chat_conversations_resource_id_chat_endpoint_resources_id_fk",
-          "tableFrom": "chat_conversations",
-          "tableTo": "chat_endpoint_resources",
-          "columnsFrom": [
-            "resource_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
         "chat_conversations_issue_id_issues_id_fk": {
           "name": "chat_conversations_issue_id_issues_id_fk",
           "tableFrom": "chat_conversations",
@@ -5530,7 +5517,7 @@
             "company_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -5746,32 +5733,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "chat_deliveries_conversation_id_chat_conversations_id_fk": {
-          "name": "chat_deliveries_conversation_id_chat_conversations_id_fk",
-          "tableFrom": "chat_deliveries",
-          "tableTo": "chat_conversations",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "chat_deliveries_principal_id_chat_external_principals_id_fk": {
-          "name": "chat_deliveries_principal_id_chat_external_principals_id_fk",
-          "tableFrom": "chat_deliveries",
-          "tableTo": "chat_external_principals",
-          "columnsFrom": [
-            "principal_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
         "chat_deliveries_company_endpoint_fk": {
           "name": "chat_deliveries_company_endpoint_fk",
           "tableFrom": "chat_deliveries",
@@ -5799,7 +5760,7 @@
             "company_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "chat_deliveries_company_principal_fk": {
@@ -5814,7 +5775,7 @@
             "company_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

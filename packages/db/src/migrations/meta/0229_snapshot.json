@@ -1,6 +1,6 @@
 {
-  "id": "a67f8798-79bc-4628-8245-3b2b632233ce",
-  "prevId": "a9723409-8948-43af-87ab-e79b5e072242",
+  "id": "a9723409-8948-43af-87ab-e79b5e072242",
+  "prevId": "11d55aa5-6b96-4b7b-bca2-52d827ed8f61",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4876,6 +4876,13 @@
           "notNull": true,
           "default": 0
         },
+        "attachment_max_bytes": {
+          "name": "attachment_max_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 10485760
+        },
         "default_responsible_user_id": {
           "name": "default_responsible_user_id",
           "type": "text",
@@ -4917,6 +4924,12 @@
         },
         "feedback_data_sharing_terms_version": {
           "name": "feedback_data_sharing_terms_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "brand_color": {
+          "name": "brand_color",
           "type": "text",
           "primaryKey": false,
           "notNull": false

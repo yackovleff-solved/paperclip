@@ -1,6 +1,6 @@
 {
-  "id": "dce9ba99-7df0-4a66-9d65-a2b10ce524e5",
-  "prevId": "977e9c22-4bc6-4f08-bd5b-be38fce4eb79",
+  "id": "977e9c22-4bc6-4f08-bd5b-be38fce4eb79",
+  "prevId": "8d758e68-10f0-48f6-bd37-0d9152b70fa4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7428,55 +7428,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chat_discord_command_owners": {
-      "name": "chat_discord_command_owners",
-      "schema": "",
-      "columns": {
-        "application_id": {
-          "name": "application_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "company_id": {
-          "name": "company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "endpoint_id": {
-          "name": "endpoint_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "action_id": {
-          "name": "action_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "chat_discord_command_owners_application_check": {
-          "name": "chat_discord_command_owners_application_check",
-          "value": "\"chat_discord_command_owners\".\"application_id\" ~ '^[1-9][0-9]{16,19}$'"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.chat_teams_file_transfers": {

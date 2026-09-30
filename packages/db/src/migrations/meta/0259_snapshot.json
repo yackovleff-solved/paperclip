@@ -1,6 +1,6 @@
 {
-  "id": "194dc0a9-e6dd-4f91-889b-d5b429d268a8",
-  "prevId": "2554d3f8-4867-4868-af6c-4dcb3ee4de4a",
+  "id": "2554d3f8-4867-4868-af6c-4dcb3ee4de4a",
+  "prevId": "f9c47e49-21af-4744-8bcb-d949e39663b9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6155,7 +6155,7 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": false
+          "default": true
         },
         "allow_unlinked_people": {
           "name": "allow_unlinked_people",

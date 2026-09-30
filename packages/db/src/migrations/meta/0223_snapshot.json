@@ -1,6 +1,6 @@
 {
-  "id": "d925c84b-41b6-42d1-a0f9-4ee090ef3cd1",
-  "prevId": "0df620d7-2e5a-4304-a98e-36c8bc550010",
+  "id": "0df620d7-2e5a-4304-a98e-36c8bc550010",
+  "prevId": "8f54003b-ed12-4ab6-a3f3-c30b4284bcc7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5866,12 +5866,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "interaction_id": {
-          "name": "interaction_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "resolved_by_user_id": {
           "name": "resolved_by_user_id",
           "type": "text",
@@ -6007,21 +6001,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "company_secret_proposals_interaction_idx": {
-          "name": "company_secret_proposals_interaction_idx",
-          "columns": [
-            {
-              "expression": "interaction_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -6114,19 +6093,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "company_secret_proposals_interaction_id_issue_thread_interactions_id_fk": {
-          "name": "company_secret_proposals_interaction_id_issue_thread_interactions_id_fk",
-          "tableFrom": "company_secret_proposals",
-          "tableTo": "issue_thread_interactions",
-          "columnsFrom": [
-            "interaction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "company_secret_proposals_created_secret_id_company_secrets_id_fk": {

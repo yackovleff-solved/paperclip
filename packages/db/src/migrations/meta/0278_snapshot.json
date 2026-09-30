@@ -1,6 +1,6 @@
 {
-  "id": "d522e293-ba4d-4ff2-a608-ce43341b04f9",
-  "prevId": "5f80a2a4-dcf6-48a0-be4b-f32dbb243e28",
+  "id": "5f80a2a4-dcf6-48a0-be4b-f32dbb243e28",
+  "prevId": "9c7c9e05-e663-4a29-8b46-63733f62da9b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -208,7 +208,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "activity_log_agent_id_agents_id_fk": {
@@ -647,7 +647,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -793,7 +793,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "agent_config_revisions_agent_id_agents_id_fk": {
@@ -1176,7 +1176,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -1601,7 +1601,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "agent_task_sessions_agent_id_agents_id_fk": {
@@ -1975,7 +1975,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "agent_wakeup_requests_agent_id_agents_id_fk": {
@@ -2228,7 +2228,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "agents_reports_to_agents_id_fk": {
@@ -2635,7 +2635,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "approval_comments_approval_id_approvals_id_fk": {
@@ -2792,7 +2792,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "approvals_requested_by_agent_id_agents_id_fk": {
@@ -2971,7 +2971,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "assets_created_by_agent_id_agents_id_fk": {
@@ -3621,7 +3621,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "budget_incidents_policy_id_budget_policies_id_fk": {
@@ -3873,7 +3873,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -9041,7 +9041,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -9413,7 +9413,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "company_secret_bindings_secret_id_company_secrets_id_fk": {
@@ -10626,7 +10626,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "company_secrets_user_secret_definition_id_user_secret_definitions_id_fk": {
@@ -12312,7 +12312,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "company_skills_folder_id_folders_id_fk": {
@@ -13432,7 +13432,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "cost_events_agent_id_agents_id_fk": {
@@ -15859,7 +15859,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "document_annotation_anchor_snapshots_thread_id_document_annotation_threads_id_fk": {
@@ -16204,7 +16204,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "document_annotation_comments_thread_id_document_annotation_threads_id_fk": {
@@ -16685,7 +16685,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "document_annotation_threads_issue_id_issues_id_fk": {
@@ -20409,7 +20409,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "feedback_exports_feedback_vote_id_feedback_votes_id_fk": {
@@ -20666,7 +20666,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "feedback_votes_issue_id_issues_id_fk": {
@@ -21018,7 +21018,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "finance_events_agent_id_agents_id_fk": {
@@ -21477,7 +21477,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "goals_parent_id_goals_id_fk": {
@@ -21747,7 +21747,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "heartbeat_run_events_run_id_heartbeat_runs_id_fk": {
@@ -21923,7 +21923,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "heartbeat_run_watchdog_decisions_run_id_heartbeat_runs_id_fk": {
@@ -22727,7 +22727,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "heartbeat_runs_agent_id_agents_id_fk": {
@@ -22942,7 +22942,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -24226,7 +24226,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -24336,7 +24336,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_approvals_issue_id_issues_id_fk": {
@@ -24528,7 +24528,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_attachments_issue_id_issues_id_fk": {
@@ -24861,7 +24861,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_comments_issue_id_issues_id_fk": {
@@ -25255,7 +25255,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_documents_issue_id_issues_id_fk": {
@@ -25432,7 +25432,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_execution_decisions_issue_id_issues_id_fk": {
@@ -25633,7 +25633,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_inbox_archives_issue_id_issues_id_fk": {
@@ -26505,7 +26505,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_read_states_issue_id_issues_id_fk": {
@@ -26840,7 +26840,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_recovery_actions_source_issue_id_issues_id_fk": {
@@ -27139,7 +27139,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_reference_mentions_source_issue_id_issues_id_fk": {
@@ -27346,7 +27346,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_relations_issue_id_issues_id_fk": {
@@ -27739,7 +27739,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_thread_interactions_issue_id_issues_id_fk": {
@@ -28021,7 +28021,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_tree_hold_members_hold_id_issue_tree_holds_id_fk": {
@@ -28293,7 +28293,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_tree_holds_root_issue_id_issues_id_fk": {
@@ -28961,7 +28961,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issue_work_products_project_id_projects_id_fk": {
@@ -30086,7 +30086,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "issues_conversation_agent_id_agents_id_fk": {
@@ -30499,7 +30499,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "join_requests_created_agent_id_agents_id_fk": {
@@ -35429,7 +35429,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -35560,7 +35560,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -36010,7 +36010,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "project_workspaces_project_id_projects_id_fk": {
@@ -36172,7 +36172,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "projects_goal_id_goals_id_fk": {
@@ -47629,7 +47629,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "workspace_runtime_services_project_id_projects_id_fk": {

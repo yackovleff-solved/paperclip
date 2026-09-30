@@ -1,6 +1,6 @@
 {
-  "id": "ecc034cd-9b49-418f-b40e-7372ef1e6eeb",
-  "prevId": "f1541a72-8009-4f98-b7be-50cf4a68f40a",
+  "id": "f1541a72-8009-4f98-b7be-50cf4a68f40a",
+  "prevId": "bcd5b1b3-9416-45fa-ae4f-5615147831de",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -22384,12 +22384,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'medium'"
-        },
-        "review_policy": {
-          "name": "review_policy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "assignee_agent_id": {
           "name": "assignee_agent_id",

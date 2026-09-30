@@ -1,6 +1,6 @@
 {
-  "id": "8b20879c-4a71-4a03-adb8-d1567d5540a3",
-  "prevId": "12c69904-b428-4f64-8d48-e8712c6fc4c9",
+  "id": "12c69904-b428-4f64-8d48-e8712c6fc4c9",
+  "prevId": "5ef9dd10-9627-4e9d-8d68-b1b9dc538224",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7435,7 +7435,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "execution_workspaces_project_id_projects_id_fk": {
@@ -19102,7 +19102,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "workspace_operations_execution_workspace_id_execution_workspaces_id_fk": {

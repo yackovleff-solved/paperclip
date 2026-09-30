@@ -1,6 +1,6 @@
 {
-  "id": "b7788149-64e9-4273-b400-91828a0402bb",
-  "prevId": "c9e4f60e-edb0-49a8-a654-4907293fef22",
+  "id": "c9e4f60e-edb0-49a8-a654-4907293fef22",
+  "prevId": "636fa88c-efae-4ad7-b095-a93334b8657e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -18727,12 +18727,6 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "external_credential": {
-          "name": "external_credential",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "status": {
           "name": "status",
           "type": "text",
@@ -18955,10 +18949,6 @@
         "connection_grants_status_check": {
           "name": "connection_grants_status_check",
           "value": "\"connection_grants\".\"status\" in ('active', 'revoked', 'expired', 'needs_reauthorization')"
-        },
-        "connection_grants_credential_source_one_of_check": {
-          "name": "connection_grants_credential_source_one_of_check",
-          "value": "\"connection_grants\".\"external_credential\" is null or jsonb_array_length(\"connection_grants\".\"credential_secret_refs\") = 0"
         },
         "connection_grants_subject_check": {
           "name": "connection_grants_subject_check",
@@ -36428,19 +36418,6 @@
           "notNull": true,
           "default": "'none'"
         },
-        "credential_source": {
-          "name": "credential_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'paperclip_vault'"
-        },
-        "external_credential": {
-          "name": "external_credential",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "credential_policy": {
           "name": "credential_policy",
           "type": "text",
@@ -36693,14 +36670,6 @@
         "tool_connections_auth_kind_check": {
           "name": "tool_connections_auth_kind_check",
           "value": "\"tool_connections\".\"auth_kind\" in ('oauth', 'api_key', 'none')"
-        },
-        "tool_connections_credential_source_check": {
-          "name": "tool_connections_credential_source_check",
-          "value": "\"tool_connections\".\"credential_source\" in ('paperclip_vault', 'vercel_connect')"
-        },
-        "tool_connections_credential_source_one_of_check": {
-          "name": "tool_connections_credential_source_one_of_check",
-          "value": "(\n      (\"tool_connections\".\"credential_source\" = 'paperclip_vault' and \"tool_connections\".\"external_credential\" is null)\n      or\n      (\"tool_connections\".\"credential_source\" = 'vercel_connect' and \"tool_connections\".\"external_credential\" is not null and jsonb_array_length(\"tool_connections\".\"credential_refs\") = 0 and jsonb_array_length(\"tool_connections\".\"credential_secret_refs\") = 0)\n    )"
         },
         "tool_connections_credential_policy_check": {
           "name": "tool_connections_credential_policy_check",
