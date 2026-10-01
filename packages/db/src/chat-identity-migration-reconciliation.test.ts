@@ -98,15 +98,15 @@ const chatMigrations = [
 ] as const;
 
 const identityMigrations = [
-  "0240_pink_fantastic_four.sql",
-  "0241_conscious_adam_destine.sql",
-  "0242_wide_lightspeed.sql",
-  "0243_sleepy_metal_master.sql",
-  "0244_organic_meltdown.sql",
-  "0245_misty_nightshade.sql",
+  "0241_pink_fantastic_four.sql",
+  "0242_conscious_adam_destine.sql",
+  "0243_wide_lightspeed.sql",
+  "0244_sleepy_metal_master.sql",
+  "0245_organic_meltdown.sql",
+  "0246_misty_nightshade.sql",
 ];
 
-const provenanceMigration = "0265_chat_interaction_wakeup_provenance.sql";
+const provenanceMigration = "0266_chat_interaction_wakeup_provenance.sql";
 const legacyProvenance = "0245_chat_interaction_wakeup_idempotency";
 const canonicalProvenance = "0251_chat_interaction_wakeup_idempotency";
 
