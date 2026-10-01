@@ -56,12 +56,14 @@ export function serviceWorkerBuildIdPlugin(
   const serviceWorkerFileName = options.serviceWorkerFileName ?? "sw.js";
   let buildId: string | null = null;
   let outDir = "dist";
+  let publicDir = "public";
 
   return {
     name: "paperclip-sw-build-id",
     apply: "build",
     configResolved(config) {
       outDir = config.build.outDir;
+      publicDir = config.publicDir;
     },
     generateBundle(_options, bundle) {
       const entry = Object.values(bundle).find(
@@ -72,9 +74,16 @@ export function serviceWorkerBuildIdPlugin(
       }
     },
     closeBundle() {
-      const swPath = path.resolve(outDir, serviceWorkerFileName);
-      const source = fs.readFileSync(swPath, "utf8");
+      // Read from the pre-copy source in publicDir rather than outDir: this
+      // hook has been observed to run before vite's own public-dir copy has
+      // landed on disk (and, separately, to run more than once per build),
+      // so re-reading outDir risks either an ENOENT or re-stamping an
+      // already-stamped file whose placeholder is gone. The publicDir source
+      // is always pristine and is what outDir is a verbatim copy of anyway.
+      const source = fs.readFileSync(path.resolve(publicDir, serviceWorkerFileName), "utf8");
       const stamped = stampServiceWorkerBuildId(source, buildId ?? "build");
+      const swPath = path.resolve(outDir, serviceWorkerFileName);
+      fs.mkdirSync(path.dirname(swPath), { recursive: true });
       fs.writeFileSync(swPath, stamped);
     },
   };
