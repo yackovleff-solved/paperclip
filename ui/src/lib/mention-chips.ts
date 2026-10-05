@@ -212,12 +212,19 @@ function resolveLucideIconNode(
   const render = (
     icon as {
       render?: (props: Record<string, unknown>, ref: unknown) => {
-        props?: { iconNode?: Array<[string, Record<string, string>]> };
+        props?: {
+          iconNode?: Array<[string, Record<string, string>]>;
+          icon?: { node?: Array<[string, Record<string, string>]> };
+        };
       } | null;
     }
   ).render;
   const rendered = typeof render === "function" ? render({}, null) : null;
-  const renderedIconNode = rendered?.props?.iconNode;
+  // lucide-react moved the node array from props.iconNode to props.icon.node
+  // between major versions; accept either shape so this stays correct across
+  // the range the package.json dependency declaration allows.
+  const renderedIconNode =
+    rendered?.props?.iconNode ?? rendered?.props?.icon?.node;
   return Array.isArray(renderedIconNode) && renderedIconNode.length > 0
     ? renderedIconNode
     : null;
