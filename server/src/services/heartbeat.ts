@@ -766,6 +766,10 @@ const INTERACTION_CONTINUATION_INFRA_MAX_ATTEMPTS = 2;
 const WORKSPACE_VALIDATION_FAILURE_CODE = "workspace_validation_failed";
 const WORKSPACE_VALIDATION_RECOVERY_CAUSE = "workspace_validation_failed";
 const CONFIGURATION_INCOMPLETE_FAILURE_CODE = "configuration_incomplete";
+// ADR-0013 addendum (SOL-5377): errorCode the claude-local adapter reports
+// when `runChildProcess`'s tokenCeiling hard-stop (packages/adapter-utils)
+// kills the process mid-stream. Mirrored in execute.ts's `toAdapterResult`.
+const TOKEN_CEILING_ERROR_CODE = "token_ceiling_hit";
 const CONFIGURATION_INCOMPLETE_RECOVERY_CAUSE = "configuration_incomplete";
 const EXECUTION_REVIEW_PARTICIPANT_RECOVERY_RETRY_REASON =
   "execution_review_participant_recovery";
@@ -12867,6 +12871,80 @@ export function heartbeatService(
     });
   }
 
+  // ADR-0013 addendum (SOL-5377): the 400K token ceiling used to be
+  // self-discipline text in agent instructions with nothing enforcing it.
+  // claude-local's execute.ts now hard-stops the process and reports
+  // `errorCode: "token_ceiling_hit"` (see TOKEN_CEILING_ERROR_CODE above);
+  // this closes the loop by blocking the issue instead of letting the
+  // orchestrator retry the same run straight back into the same ceiling.
+  // Returns true when this run is a token-ceiling failure (whether or not an
+  // issue was actually found to block), so the caller can skip every other
+  // failed-run retry/continuation path for it.
+  async function blockIssueForTokenCeiling(
+    run: typeof heartbeatRuns.$inferSelect,
+  ): Promise<boolean> {
+    if (run.errorCode !== TOKEN_CEILING_ERROR_CODE) return false;
+    const contextSnapshot = parseObject(run.contextSnapshot);
+    const issueId =
+      readNonEmptyString(contextSnapshot.issueId) ??
+      readNonEmptyString(contextSnapshot.taskId);
+    if (!issueId) return true;
+
+    const issue = await db
+      .select({ id: issues.id, status: issues.status })
+      .from(issues)
+      .where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)))
+      .then((rows) => rows[0] ?? null);
+    if (!issue || issue.status === "done" || issue.status === "cancelled") {
+      return true;
+    }
+
+    const tokenCeilingHit = parseObject(
+      parseObject(run.resultJson).tokenCeilingHit,
+    );
+    const measured = Math.max(0, Number(tokenCeilingHit.totalTokens) || 0);
+    const ceiling = Math.max(0, Number(tokenCeilingHit.limit) || 0);
+    const body = [
+      "Paperclip stopped this run because the Claude token ceiling was exceeded.",
+      "",
+      `- Code: \`${TOKEN_CEILING_ERROR_CODE}\``,
+      `- Measured: ${measured.toLocaleString("en-US")} cached-read + output tokens`,
+      `- Ceiling: ${ceiling.toLocaleString("en-US")} tokens`,
+      "- Next action: split the task or reduce the session context, then resume the issue.",
+    ].join("\n");
+
+    if (issue.status !== "blocked") {
+      await issuesSvc.update(issueId, {
+        status: "blocked",
+        companyGuard: run.companyId,
+      });
+    }
+
+    const existingComment = await db
+      .select({ id: issueComments.id })
+      .from(issueComments)
+      .where(
+        and(
+          eq(issueComments.issueId, issueId),
+          eq(issueComments.companyId, run.companyId),
+          eq(issueComments.createdByRunId, run.id),
+          eq(issueComments.body, body),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (!existingComment) {
+      await issuesSvc.addComment(
+        issueId,
+        body,
+        { runId: run.id },
+        { authorType: "system" },
+      );
+    }
+
+    return true;
+  }
+
   async function handleRunLivenessContinuation(
     run: typeof heartbeatRuns.$inferSelect,
   ) {
@@ -24492,7 +24570,14 @@ export function heartbeatService(
               `[paperclip] Failed to resolve run presentation: ${err instanceof Error ? err.message : String(err)}\n`,
             );
           }
-          if (outcome === "failed" && isMaxTurnExhaustionRun(livenessRun)) {
+          const tokenCeilingBlocked =
+            outcome === "failed" &&
+            (await blockIssueForTokenCeiling(livenessRun));
+          if (
+            !tokenCeilingBlocked &&
+            outcome === "failed" &&
+            isMaxTurnExhaustionRun(livenessRun)
+          ) {
             const policy = parseMaxTurnContinuationPolicy(agent);
             if (policy.enabled && policy.maxAttempts > 0) {
               await scheduleBoundedRetryForRun(livenessRun, agent, {
@@ -24515,11 +24600,13 @@ export function heartbeatService(
               });
             }
           } else if (
+            !tokenCeilingBlocked &&
             outcome === "failed" &&
             readTransientRecoveryContractFromRun(livenessRun)
           ) {
             await scheduleBoundedRetryForRun(livenessRun, agent);
           } else if (
+            !tokenCeilingBlocked &&
             outcome === "failed" &&
             !legacyExecutionNeedsReconciliation(livenessRun)
           ) {
@@ -24535,14 +24622,15 @@ export function heartbeatService(
           );
           const conversationSettled = await settleConversationTurn(db, livenessRun);
           await releaseIssueExecutionAndPromote(livenessRun, {
-            suppressImmediateRecovery: conversationSettled ||
+            suppressImmediateRecovery: tokenCeilingBlocked ||
+              conversationSettled ||
               readNonEmptyString(
                 parseObject(livenessRun.contextSnapshot).goalControlRequestId,
               ) !== null ||
               parseObject(livenessRun.contextSnapshot)
                 .resumeSessionGoalHeartbeat === true,
           });
-          if (!conversationSettled) {
+          if (!conversationSettled && !tokenCeilingBlocked) {
           await handleRunLivenessContinuation(livenessRun);
           await handleIssueReviewPathDisposition(livenessRun);
           await handleSuccessfulRunHandoff(
