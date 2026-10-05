@@ -11117,35 +11117,45 @@ export function issueService(db: Db) {
       const result = await (dbOrTx === db
         ? db.transaction(runUpdate)
         : runUpdate(dbOrTx));
+      if (
+        result &&
+        typeof issueData.status === "string" &&
+        existing.status !== result.status
+      ) {
+        // Write through dbOrTx, not db: an external caller's transaction
+        // (e.g. recovery's repairNativeBlockedWait) is still open here, and a
+        // later failure in that same transaction must roll this log back
+        // with everything else. db.transaction(runUpdate) has already
+        // committed by this point when dbOrTx === db, so dbOrTx === db there
+        // behaves the same as the previous unconditional `db` write.
+        await logIssueStatusChange(
+          dbOrTx,
+          {
+            companyId: existing.companyId,
+            actorType: actorAgentId ? "agent" : actorUserId ? "user" : "system",
+            actorId: actorAgentId ?? actorUserId ?? "issue_service",
+            agentId: actorAgentId ?? null,
+            runId: null,
+            issueId: existing.id,
+            identifier: result.identifier,
+            fromStatus: existing.status,
+            toStatus: result.status,
+            source: "issue_service.update",
+          },
+          activityPublications,
+        ).catch((err) => {
+          logger.warn(
+            { err, issueId: existing.id, fromStatus: existing.status, toStatus: result.status },
+            "failed to record issue.status_changed activity from issue_service.update",
+          );
+        });
+      }
       if (dbOrTx === db && !postCommitActivityPublications) {
         for (const publication of ownedActivityPublications)
           publishActivity(publication);
       }
       if (dbOrTx === db && !postCommitActions) {
         await executeIssuePostCommitActions(db, ownedPostCommitActions);
-      }
-      if (
-        result &&
-        typeof issueData.status === "string" &&
-        existing.status !== result.status
-      ) {
-        await logIssueStatusChange(db, {
-          companyId: existing.companyId,
-          actorType: actorAgentId ? "agent" : actorUserId ? "user" : "system",
-          actorId: actorAgentId ?? actorUserId ?? "issue_service",
-          agentId: actorAgentId ?? null,
-          runId: null,
-          issueId: existing.id,
-          identifier: result.identifier,
-          fromStatus: existing.status,
-          toStatus: result.status,
-          source: "issue_service.update",
-        }).catch((err) => {
-          logger.warn(
-            { err, issueId: existing.id, fromStatus: existing.status, toStatus: result.status },
-            "failed to record issue.status_changed activity from issue_service.update",
-          );
-        });
       }
       return result;
     },
