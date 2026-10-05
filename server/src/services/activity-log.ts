@@ -91,6 +91,7 @@ export interface LogIssueStatusChangeInput {
 export async function logIssueStatusChange(
   db: Db,
   input: LogIssueStatusChangeInput,
+  postCommitPublications?: ActivityPublication[],
 ): Promise<boolean> {
   if (input.fromStatus === input.toStatus) return false;
   const details: Record<string, unknown> = {
@@ -106,17 +107,21 @@ export async function logIssueStatusChange(
       if (!(key in details)) details[key] = value;
     }
   }
-  await logActivity(db, {
-    companyId: input.companyId,
-    actorType: input.actorType,
-    actorId: input.actorId,
-    agentId: input.agentId ?? null,
-    runId: input.runId ?? null,
-    action: "issue.status_changed",
-    entityType: "issue",
-    entityId: input.issueId,
-    details,
-  });
+  await logActivity(
+    db,
+    {
+      companyId: input.companyId,
+      actorType: input.actorType,
+      actorId: input.actorId,
+      agentId: input.agentId ?? null,
+      runId: input.runId ?? null,
+      action: "issue.status_changed",
+      entityType: "issue",
+      entityId: input.issueId,
+      details,
+    },
+    postCommitPublications,
+  );
   return true;
 }
 
