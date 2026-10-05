@@ -1518,6 +1518,69 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(missingCommentWakeups).toHaveLength(0);
   });
 
+  it("blocks the issue and records token_ceiling_hit without retrying", async () => {
+    mockAdapterExecute.mockResolvedValueOnce({
+      exitCode: null,
+      signal: "SIGTERM",
+      timedOut: false,
+      errorCode: "token_ceiling_hit",
+      errorMessage: "token_ceiling_hit: 400001 tokens exceeded 400000 limit",
+      provider: "anthropic",
+      model: "claude-test",
+      resultJson: {
+        tokenCeilingHit: { totalTokens: 400_001, limit: 400_000 },
+      },
+      clearSession: true,
+    });
+
+    const { agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId);
+    await heartbeat.waitForRunExecutionDrain(runId);
+
+    const run = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0] ?? null);
+    expect(run).toMatchObject({
+      status: "failed",
+      errorCode: "token_ceiling_hit",
+    });
+
+    const issue = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.id, issueId))
+      .then((rows) => rows[0] ?? null);
+    expect(issue).toMatchObject({
+      status: "blocked",
+      assigneeAgentId: agentId,
+      executionRunId: null,
+      checkoutRunId: null,
+    });
+
+    const comments = await db
+      .select()
+      .from(issueComments)
+      .where(eq(issueComments.issueId, issueId));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({
+      authorType: "system",
+      body: expect.stringContaining("`token_ceiling_hit`"),
+    });
+    expect(comments[0]?.body).toContain("400,001");
+    expect(comments[0]?.body).toContain("400,000");
+
+    const retryRuns = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.retryOfRunId, runId));
+    expect(retryRuns).toHaveLength(0);
+  });
+
   it("does not immediately continue a low-trust preflight setup failure", async () => {
     const { agentId, runId, issueId, companyId } =
       await seedQueuedIssueRunFixture();
