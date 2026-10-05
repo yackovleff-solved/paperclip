@@ -119,17 +119,18 @@ describeDatabase("chat tenant foreign keys", () => {
           company_id: own.company,
           issue_id: own.issue,
         });
-        // Existing company deletion requires its service's explicit child cleanup.
-        // A direct rejected delete must not partially cascade into chat history.
-        await expect(
-          sql`DELETE FROM companies WHERE id = ${foreign.company}`,
-        ).rejects.toMatchObject({ code: "23503" });
+        // Every table in this chain carries its own company_id FK with
+        // ON DELETE CASCADE (SOL-6075 companies-fk-cascade-audit), so a bare
+        // `DELETE FROM companies` cleans up chat history directly rather than
+        // being rejected and requiring the service layer's explicit child
+        // cleanup first.
+        await sql`DELETE FROM companies WHERE id = ${foreign.company}`;
         expect(
           await sql`SELECT id FROM chat_actions WHERE id = ${foreign.action}`,
-        ).toHaveLength(1);
-        // This tests the endpoint/conversation ownership graph with no resource
-        // binding; it does not qualify preexisting resource SET NULL constraints.
-        await sql`DELETE FROM chat_endpoints WHERE id = ${foreign.endpoint}`;
+        ).toHaveLength(0);
+        // The endpoint/conversation ownership graph is already gone via the
+        // company-level cascade above; this just confirms nothing was left
+        // behind for any table in the chain.
         for (const table of [
           "chat_endpoints",
           "chat_conversations",
