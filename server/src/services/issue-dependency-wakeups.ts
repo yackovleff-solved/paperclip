@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { agentWakeupRequests } from "@paperclipai/db";
+import { agentWakeupRequests, heartbeatRuns } from "@paperclipai/db";
 
 export const ISSUE_BLOCKERS_RESOLVED_WAKE_REASON = "issue_blockers_resolved";
 
@@ -236,4 +236,46 @@ export async function findExistingIssueBlockersResolvedWakeForReadyState(
     }),
   );
   return covering ?? null;
+}
+
+export type IssueEchoWakeInput = {
+  actorType: string;
+  actorAgentId: string | null | undefined;
+  actorRunIssueId: string | null | undefined;
+  recipientAgentId: string;
+  targetIssueId: string;
+};
+
+/**
+ * An echo wake is a dependency or child-completion wake that would wake the
+ * same agent whose run caused it, for the issue that run is already working
+ * on. The agent closed the blocker or child itself from inside that run, so it
+ * already knows; a fresh run only re-reads the thread and burns a heartbeat.
+ * A wake for a different issue, or from a run scoped elsewhere, is real news.
+ * If the issue is left blocked anyway, the dependency reconciler still wakes it.
+ */
+export function isIssueEchoWake(input: IssueEchoWakeInput): boolean {
+  return (
+    input.actorType === "agent" &&
+    Boolean(input.actorAgentId) &&
+    input.actorAgentId === input.recipientAgentId &&
+    Boolean(input.actorRunIssueId) &&
+    input.actorRunIssueId === input.targetIssueId
+  );
+}
+
+/** The issue a heartbeat run is scoped to, or null when unknown. */
+export async function findHeartbeatRunIssueId(
+  db: Db,
+  runId: string | null | undefined,
+): Promise<string | null> {
+  if (!runId) return null;
+  const row = await db
+    .select({ contextSnapshot: heartbeatRuns.contextSnapshot })
+    .from(heartbeatRuns)
+    .where(eq(heartbeatRuns.id, runId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
+  const issueId = row?.contextSnapshot?.issueId;
+  return typeof issueId === "string" && issueId.length > 0 ? issueId : null;
 }
