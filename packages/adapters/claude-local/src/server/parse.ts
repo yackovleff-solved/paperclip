@@ -162,6 +162,36 @@ function extractClaudeErrorMessages(parsed: Record<string, unknown>): string[] {
   return messages;
 }
 
+// The stream-json event types that carry the agent transcript rather than CLI
+// diagnostics. Assistant text, tool results (curl output, logs, file content)
+// and partial-message deltas can print any phrase, such as a 429 from a curl
+// call or "Unauthorized" from an API the agent probed. The `system/init` event
+// lists tools and MCP server names. None of these is the CLI reporting its own
+// failure, so the error classifiers never read them.
+const CLAUDE_TRANSCRIPT_EVENT_TYPES = new Set(["assistant", "user", "stream_event"]);
+
+/**
+ * Strip the agent transcript from the raw Claude stdout. Keeps plain-text CLI
+ * lines and the CLI's own non-transcript events (result, api retries, errors),
+ * so the error classifiers see only what the CLI itself reported.
+ */
+export function claudeCliDiagnosticStdout(stdout: string | null | undefined): string {
+  if (!stdout) return "";
+  return stdout
+    .split(/\r?\n/)
+    .filter((rawLine) => {
+      const line = rawLine.trim();
+      if (!line.startsWith("{")) return true;
+      const event = parseJson(line);
+      if (!event) return true;
+      const type = asString(event.type, "");
+      if (CLAUDE_TRANSCRIPT_EVENT_TYPES.has(type)) return false;
+      if (type === "system" && asString(event.subtype, "") === "init") return false;
+      return true;
+    })
+    .join("\n");
+}
+
 export function extractClaudeLoginUrl(text: string): string | null {
   const match = text.match(URL_RE);
   if (!match || match.length === 0) return null;
@@ -211,10 +241,12 @@ export function detectClaudeLoginRequired(input: {
   const parsed = input.parsed ?? null;
   const resultText = asString(parsed?.result, "").trim();
 
-  // The legacy login-prompt markers keep their broad scope. They match against
-  // every output line, which includes the parsed result, the parsed errors, and
-  // the raw stdout and stderr.
-  const promptLines = [resultText, ...extractClaudeErrorMessages(parsed ?? {}), input.stdout, input.stderr]
+  // The legacy login-prompt markers match against every CLI output line: the
+  // parsed result, the parsed errors, the CLI's own stdout lines, and stderr.
+  // Transcript events are stripped, so a tool that prints "Unauthorized" does
+  // not read as the CLI asking for login.
+  const cliStdout = claudeCliDiagnosticStdout(input.stdout);
+  const promptLines = [resultText, ...extractClaudeErrorMessages(parsed ?? {}), cliStdout, input.stderr]
     .join("\n")
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -231,7 +263,7 @@ export function detectClaudeLoginRequired(input: {
 
   return {
     requiresLogin: loginPrompt || tokenFailure,
-    loginUrl: extractClaudeLoginUrl([input.stdout, input.stderr].join("\n")),
+    loginUrl: extractClaudeLoginUrl([cliStdout, input.stderr].join("\n")),
   };
 }
 
@@ -260,7 +292,7 @@ export function isClaudeModelNotFoundError(input: {
   const parsed = input.parsed ?? null;
   const messages = [
     input.errorMessage ?? "",
-    input.stdout ?? "",
+    claudeCliDiagnosticStdout(input.stdout),
     input.stderr ?? "",
     parsed ? asString(parsed.result, "") : "",
     ...(parsed ? extractClaudeErrorMessages(parsed) : []),
@@ -355,7 +387,7 @@ function buildClaudeTransientHaystack(input: {
     input.errorMessage ?? "",
     resultText,
     ...parsedErrors,
-    input.stdout ?? "",
+    claudeCliDiagnosticStdout(input.stdout),
     input.stderr ?? "",
   ]
     .join("\n")
