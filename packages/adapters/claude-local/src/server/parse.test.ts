@@ -581,3 +581,58 @@ describe("interrupted Claude accounting", () => {
     expect(parsed.costUsd).toBeNull();
   });
 });
+
+describe("transcript events never drive error classification", () => {
+  const transcript = [
+    '{"type":"system","subtype":"init","session_id":"s1","model":"claude-opus-5-5","mcp_servers":[{"name":"rate-limit-proxy"}]}',
+    '{"type":"assistant","message":{"content":[{"type":"text","text":"The API answered 429 Too Many Requests; rate limit reached, try again later."}]}}',
+    '{"type":"user","message":{"content":[{"type":"tool_result","content":"HTTP/1.1 401 Unauthorized\\nHTTP/1.1 429 Too Many Requests\\nmodel not found\\nsee https://example.com/auth/login"}]}}',
+    '{"type":"stream_event","event":{"delta":{"text":"overloaded_error 503"}}}',
+  ].join("\n");
+
+  it("does not classify a failed run as transient from tool output alone", () => {
+    const input = {
+      parsed: { is_error: true, subtype: "error_during_execution", result: "Tool crashed unexpectedly" },
+      stdout: transcript,
+      stderr: "",
+    };
+    expect(isClaudeTransientUpstreamError(input)).toBe(false);
+    expect(isClaudeProviderQuotaError(input)).toBe(false);
+    expect(isClaudeModelNotFoundError(input)).toBe(false);
+    expect(extractClaudeRetryNotBefore(input)).toBeNull();
+  });
+
+  it("does not classify tool output as a login prompt or login URL", () => {
+    const meta = detectClaudeLoginRequired({
+      parsed: { is_error: false, subtype: "success", result: "done" },
+      stdout: transcript,
+      stderr: "",
+    });
+    expect(meta.requiresLogin).toBe(false);
+    expect(meta.loginUrl).toBeNull();
+  });
+
+  it("still classifies the CLI's own result and plain-text output", () => {
+    expect(
+      isClaudeTransientUpstreamError({
+        parsed: { is_error: true, subtype: "error_during_execution", result: "API Error: 529 overloaded_error" },
+        stdout: `${transcript}\n{"type":"result","subtype":"error_during_execution","is_error":true,"result":"API Error: 529 overloaded_error"}`,
+        stderr: "",
+      }),
+    ).toBe(true);
+    expect(
+      isClaudeTransientUpstreamError({
+        parsed: null,
+        stdout: `${transcript}\n{"type":"system","subtype":"api_retry","error_status":429,"error":"rate_limit"}`,
+        stderr: "",
+      }),
+    ).toBe(true);
+    expect(
+      detectClaudeLoginRequired({
+        parsed: null,
+        stdout: `${transcript}\nInvalid API key · Please run /login`,
+        stderr: "",
+      }).requiresLogin,
+    ).toBe(true);
+  });
+});

@@ -198,6 +198,25 @@ function extractClaudeErrorMessages(parsed: Record<string, unknown>): string[] {
   return messages;
 }
 
+const CLAUDE_TRANSCRIPT_EVENT_TYPES = new Set(["assistant", "user", "stream_event"]);
+
+export function claudeCliDiagnosticStdout(stdout: string | null | undefined): string {
+  if (!stdout) return "";
+  return stdout
+    .split(/\r?\n/)
+    .filter((rawLine) => {
+      const line = rawLine.trim();
+      if (!line.startsWith("{")) return true;
+      const event = parseJson(line);
+      if (!event) return true;
+      const type = asString(event.type, "");
+      if (CLAUDE_TRANSCRIPT_EVENT_TYPES.has(type)) return false;
+      if (type === "system" && asString(event.subtype, "") === "init") return false;
+      return true;
+    })
+    .join("\n");
+}
+
 export function extractClaudeLoginUrl(text: string): string | null {
   const match = text.match(URL_RE);
   if (!match || match.length === 0) return null;
@@ -248,9 +267,10 @@ export function detectClaudeLoginRequired(input: {
   const resultText = asString(parsed?.result, "").trim();
 
   // The legacy login-prompt markers keep their broad scope. They match against
-  // every output line, which includes the parsed result, the parsed errors, and
-  // the raw stdout and stderr.
-  const promptLines = [resultText, ...extractClaudeErrorMessages(parsed ?? {}), input.stdout, input.stderr]
+  // every output line, which includes the parsed result, the parsed errors, the
+  // CLI stdout without transcript events, and stderr.
+  const cliStdout = claudeCliDiagnosticStdout(input.stdout);
+  const promptLines = [resultText, ...extractClaudeErrorMessages(parsed ?? {}), cliStdout, input.stderr]
     .join("\n")
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -267,7 +287,7 @@ export function detectClaudeLoginRequired(input: {
 
   return {
     requiresLogin: loginPrompt || tokenFailure,
-    loginUrl: extractClaudeLoginUrl([input.stdout, input.stderr].join("\n")),
+    loginUrl: extractClaudeLoginUrl([cliStdout, input.stderr].join("\n")),
   };
 }
 
@@ -296,7 +316,7 @@ export function isClaudeModelNotFoundError(input: {
   const parsed = input.parsed ?? null;
   const messages = [
     input.errorMessage ?? "",
-    input.stdout ?? "",
+    claudeCliDiagnosticStdout(input.stdout),
     input.stderr ?? "",
     parsed ? asString(parsed.result, "") : "",
     ...(parsed ? extractClaudeErrorMessages(parsed) : []),
@@ -391,7 +411,7 @@ function buildClaudeTransientHaystack(input: {
     input.errorMessage ?? "",
     resultText,
     ...parsedErrors,
-    input.stdout ?? "",
+    claudeCliDiagnosticStdout(input.stdout),
     input.stderr ?? "",
   ]
     .join("\n")
