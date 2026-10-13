@@ -259,6 +259,8 @@ import {
   ISSUE_BLOCKERS_RESOLVED_WAKE_REASON,
   buildIssueBlockersResolvedWakeStateKey,
   findExistingIssueBlockersResolvedWakeForReadyState,
+  findHeartbeatRunIssueId,
+  isIssueEchoWake,
 } from "../services/issue-dependency-wakeups.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
 import {
@@ -14329,6 +14331,23 @@ export function issueRoutes(
               : issue.id;
           wakeups.set(`${agentId}:${wakeIssueId}`, { agentId, wakeup });
         };
+        // Echo-wake guard: an agent that closes a blocker or child from inside
+        // its run on the dependent or parent issue must not be woken for it.
+        let actorRunIssueIdPromise: Promise<string | null> | null = null;
+        const isEchoWake = async (recipientAgentId: string, targetIssueId: string) => {
+          if (actor.actorType !== "agent" || actor.agentId !== recipientAgentId) return false;
+          actorRunIssueIdPromise ??= findHeartbeatRunIssueId(db, actor.runId).catch((err) => {
+            logger.warn({ err, runId: actor.runId }, "failed to resolve actor run issue for echo-wake guard");
+            return null;
+          });
+          return isIssueEchoWake({
+            actorType: actor.actorType,
+            actorAgentId: actor.agentId,
+            actorRunIssueId: await actorRunIssueIdPromise,
+            recipientAgentId,
+            targetIssueId,
+          });
+        };
         const addDependencyResolvedWakeup = async (input: {
           agentId: string;
           dependentIssueId: string;
@@ -14338,6 +14357,7 @@ export function issueRoutes(
           source: string;
           mutation: string;
         }) => {
+          if (await isEchoWake(input.agentId, input.dependentIssueId)) return;
           const idempotencyKey = buildIssueBlockersResolvedWakeStateKey({
             dependentIssueId: input.dependentIssueId,
             blockerIssueIds: input.blockerIssueIds,
@@ -14687,7 +14707,7 @@ export function issueRoutes(
           const parent = await svc.getWakeableParentAfterChildCompletion(
             issue.parentId,
           );
-          if (parent) {
+          if (parent && !(await isEchoWake(parent.assigneeAgentId, parent.id))) {
             addWakeup(parent.assigneeAgentId, {
               source: "automation",
               triggerDetail: "system",
@@ -17768,6 +17788,23 @@ export function issueRoutes(
           if (wakeups.has(key)) return;
           wakeups.set(key, { agentId, wakeup });
         };
+        // Echo-wake guard: an agent that closes a blocker or child from inside
+        // its run on the dependent or parent issue must not be woken for it.
+        let actorRunIssueIdPromise: Promise<string | null> | null = null;
+        const isEchoWake = async (recipientAgentId: string, targetIssueId: string) => {
+          if (actor.actorType !== "agent" || actor.agentId !== recipientAgentId) return false;
+          actorRunIssueIdPromise ??= findHeartbeatRunIssueId(db, actor.runId).catch((err) => {
+            logger.warn({ err, runId: actor.runId }, "failed to resolve actor run issue for echo-wake guard");
+            return null;
+          });
+          return isIssueEchoWake({
+            actorType: actor.actorType,
+            actorAgentId: actor.agentId,
+            actorRunIssueId: await actorRunIssueIdPromise,
+            recipientAgentId,
+            targetIssueId,
+          });
+        };
         const addDependencyResolvedWakeup = async (input: {
           agentId: string;
           dependentIssueId: string;
@@ -17775,6 +17812,7 @@ export function issueRoutes(
           blockerIssueIds: string[];
           blockedTransitionAt?: Date | string | null;
         }) => {
+          if (await isEchoWake(input.agentId, input.dependentIssueId)) return;
           const idempotencyKey = buildIssueBlockersResolvedWakeStateKey({
             dependentIssueId: input.dependentIssueId,
             blockerIssueIds: input.blockerIssueIds,
@@ -18011,7 +18049,7 @@ export function issueRoutes(
           const parent = await svc.getWakeableParentAfterChildCompletion(
             currentIssue.parentId,
           );
-          if (parent) {
+          if (parent && !(await isEchoWake(parent.assigneeAgentId, parent.id))) {
             addWakeup(parent.assigneeAgentId, {
               source: "automation",
               triggerDetail: "system",
