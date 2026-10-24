@@ -7,6 +7,7 @@ import {
   companies,
   createDb,
   heartbeatRuns,
+  issues,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -31,6 +32,7 @@ describeEmbeddedPostgres("cross-issue influence limit PostgreSQL serialization",
 
   afterEach(async () => {
     await db.delete(activityLog);
+    await db.delete(issues);
     await db.delete(heartbeatRuns);
     await db.delete(agents);
     await db.delete(companies);
@@ -112,5 +114,54 @@ describeEmbeddedPostgres("cross-issue influence limit PostgreSQL serialization",
       .where(and(eq(activityLog.companyId, companyId), eq(activityLog.runId, runId)));
     expect(recorded.filter((row) => row.action === "issue.cross_issue_influence_observed")).toHaveLength(20);
     expect(recorded.filter((row) => row.action === "issue.cross_issue_influence_cap_rejected")).toHaveLength(1);
+  });
+
+  it("exempts an unscoped run's writes to the issue it checked out and rejects the rest", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const runId = randomUUID();
+    const otherRunId = randomUUID();
+    const ownIssueId = randomUUID();
+    const executionIssueId = randomUUID();
+    const foreignIssueId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `C${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      defaultResponsibleUserId: "board-user",
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Manual Runner",
+      role: "engineer",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    // A manually started run carries no issueId in its context snapshot.
+    await db.insert(heartbeatRuns).values([
+      { id: runId, companyId, agentId, status: "running", contextSnapshot: {} },
+      { id: otherRunId, companyId, agentId, status: "running", contextSnapshot: {} },
+    ]);
+    await db.insert(issues).values([
+      { id: ownIssueId, companyId, title: "checked out", status: "in_progress", checkoutRunId: runId },
+      { id: executionIssueId, companyId, title: "executing", status: "in_progress", executionRunId: runId },
+      { id: foreignIssueId, companyId, title: "foreign", status: "in_progress", checkoutRunId: otherRunId },
+    ]);
+
+    const base = { companyId, runId, agentId, kind: "update" as const, now: CROSS_ISSUE_INFLUENCE_ENFORCE_AT };
+    await expect(observeCrossIssueInfluence(db, { ...base, targetIssueId: ownIssueId })).resolves.toBeNull();
+    await expect(observeCrossIssueInfluence(db, { ...base, targetIssueId: executionIssueId })).resolves.toBeNull();
+    await expect(observeCrossIssueInfluence(db, { ...base, targetIssueId: foreignIssueId }))
+      .rejects.toMatchObject({ status: 403, details: { code: "cross_issue_influence_run_context_required" } });
+
+    const recorded = await db
+      .select({ entityId: activityLog.entityId })
+      .from(activityLog)
+      .where(and(eq(activityLog.companyId, companyId), eq(activityLog.runId, runId)));
+    expect(recorded).toEqual([]);
   });
 });
