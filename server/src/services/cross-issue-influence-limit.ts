@@ -1,6 +1,6 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, or } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { activityLog, heartbeatRuns } from "@paperclipai/db";
+import { activityLog, heartbeatRuns, issues } from "@paperclipai/db";
 import { isUuidLike, issueWriteDenialResponse } from "@paperclipai/shared";
 import { forbidden } from "../errors.js";
 import { logger } from "../middleware/logger.js";
@@ -121,6 +121,23 @@ export async function observeCrossIssueInfluence(
         (input.targetIssueIdentifier && sourceIssueId.toUpperCase() === input.targetIssueIdentifier.toUpperCase()))
     ) {
       return null;
+    }
+
+    // An unscoped run (e.g. a manual "Run heartbeat") can still check out a
+    // task: checkout binds the issue to the run via checkoutRunId /
+    // executionRunId but leaves the run's context snapshot without an issueId.
+    // Writes to the issue this run holds are same-issue writes, not influence.
+    if (sourceIssueId === null) {
+      const boundToRun = await tx
+        .select({ id: issues.id })
+        .from(issues)
+        .where(and(
+          eq(issues.id, input.targetIssueId),
+          eq(issues.companyId, input.companyId),
+          or(eq(issues.checkoutRunId, input.runId), eq(issues.executionRunId, input.runId)),
+        ))
+        .then((rows) => rows[0] ?? null);
+      if (boundToRun) return null;
     }
 
     const priorCount = await tx
