@@ -35,6 +35,18 @@ type SecretRoutesDeps = {
   issues?: Pick<ReturnType<typeof issueService>, "getById" | "addComment">;
 };
 
+function requiredProposalString(body: Record<string, unknown>, field: string, message: string): string {
+  const value = body[field];
+  if (typeof value !== "string" || !value) throw unprocessable(message);
+  return value;
+}
+
+function optionalProposalString(body: Record<string, unknown>, field: string): string | null | undefined {
+  const value = body[field];
+  if (value === undefined || value === null || typeof value === "string") return value;
+  throw unprocessable(`${field} must be a string`);
+}
+
 const DEFAULT_PROPOSAL_LIST_LIMIT = 100;
 const MAX_PROPOSAL_LIST_LIMIT = 200;
 
@@ -193,24 +205,28 @@ export function secretRoutes(db: Db, deps: SecretRoutesDeps = {}) {
 
   router.post("/agents/me/secret-proposals", async (req, res) => {
     const context = await proposalAgentContext(req);
-    const body = req.body ?? {};
+    const body: Record<string, unknown> = req.body && typeof req.body === "object" ? req.body : {};
     const proposal = body.kind === "secret"
       ? await proposals.createSecret({
           companyId: context.companyId,
           heartbeatRunId: context.heartbeatRunId,
           registerForRedaction: (value) => runRedactions.register(context.companyId, context.heartbeatRunId, value),
         }, {
-          name: body.name,
-          key: body.key,
-          description: body.description,
-          value: body.value,
-          justification: body.justification,
+          name: requiredProposalString(body, "name", "Secret name is required"),
+          key: optionalProposalString(body, "key"),
+          description: optionalProposalString(body, "description"),
+          value: requiredProposalString(body, "value", "Secret value is required"),
+          justification: requiredProposalString(body, "justification", "Justification is required"),
         })
       : body.kind === "binding"
         ? await proposals.createBinding({ companyId: context.companyId, heartbeatRunId: context.heartbeatRunId }, {
-            secretId: body.secretId, sourceConfigPath: body.sourceConfigPath,
-            secretProposalId: body.secretProposalId, targetAgentId: body.targetAgentId,
-            configPath: body.configPath, justification: body.justification, bindingTargetPolicy: "self_and_reports",
+            secretId: optionalProposalString(body, "secretId"),
+            sourceConfigPath: optionalProposalString(body, "sourceConfigPath"),
+            secretProposalId: optionalProposalString(body, "secretProposalId"),
+            targetAgentId: optionalProposalString(body, "targetAgentId"),
+            configPath: requiredProposalString(body, "configPath", "configPath is required"),
+            justification: requiredProposalString(body, "justification", "Justification is required"),
+            bindingTargetPolicy: "self_and_reports",
           })
         : (() => { throw unprocessable("kind must be secret or binding"); })();
     res.status(201).json(agentProposalView(await proposals.view(proposal)));
