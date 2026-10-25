@@ -603,6 +603,38 @@ describeEmbeddedPostgres("secret proposal routes", () => {
     expect(await db.select().from(companySecretProposals)).toHaveLength(0);
   });
 
+  it.each([
+    ["justification", { configPath: "env.MISSING_FIELD_TOKEN" }, "Justification is required"],
+    ["configPath", { justification: "Bind the token for staging QA" }, "configPath is required"],
+    ["non-string configPath", { configPath: 42, justification: "Bind the token for staging QA" }, "configPath is required"],
+    ["non-string secretId", { secretId: 7, configPath: "env.MISSING_FIELD_TOKEN", justification: "Bind it" }, "secretId must be a string"],
+  ])("returns 422 for a binding proposal with missing or invalid %s", async (_label, fields, message) => {
+    const fixture = await seedRun();
+    const response = await request(createAgentApp(fixture))
+      .post("/api/agents/me/secret-proposals")
+      .send({ kind: "binding", secretId: randomUUID(), ...fields });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error).toBe(message);
+    expect(await db.select().from(companySecretProposals)).toHaveLength(0);
+  });
+
+  it.each([
+    ["name", { value: "secret-value", justification: "Needed for QA" }, "Secret name is required"],
+    ["value", { name: "dev/missing/value", justification: "Needed for QA" }, "Secret value is required"],
+    ["justification", { name: "dev/missing/justification", value: "secret-value" }, "Justification is required"],
+    ["non-string key", { name: "dev/bad/key", value: "secret-value", justification: "Needed", key: ["K"] }, "key must be a string"],
+  ])("returns 422 for a secret proposal with missing or invalid %s", async (_label, fields, message) => {
+    const fixture = await seedRun();
+    const response = await request(createAgentApp(fixture))
+      .post("/api/agents/me/secret-proposals")
+      .send({ kind: "secret", ...fields });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error).toBe(message);
+    expect(await db.select().from(companySecretProposals)).toHaveLength(0);
+  });
+
   it("accepts a user-scoped source secret only through the proposer's existing binding", async () => {
     const fixture = await seedRun();
     const secrets = secretService(db);
