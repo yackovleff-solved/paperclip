@@ -48,9 +48,15 @@ describe("buildKimiAcpConfig", () => {
   });
 
   it("strips CLI-lane effort so ACP is not sent the unsupported `effort` control", () => {
-    const out = buildKimiAcpConfig({ model: "kimi-code/k3", effort: "high", thinkingEffort: "high" });
+    const out = buildKimiAcpConfig({
+      model: "kimi-code/k3",
+      effort: "high",
+      thinkingEffort: "high",
+      effortByWakeReason: { issue_commented: "low" },
+    });
     expect("effort" in out).toBe(false);
     expect("thinkingEffort" in out).toBe(false);
+    expect("effortByWakeReason" in out).toBe(false);
   });
 
   it("opts into the shared engine's verbose-backend handling", () => {
