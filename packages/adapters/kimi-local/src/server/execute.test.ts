@@ -416,6 +416,125 @@ describe("kimi_local execute", () => {
     expect(seenEnv.KIMI_MODEL_THINKING_EFFORT).toBeUndefined();
   });
 
+  describe("effort by wake reason", () => {
+    const housekeepingLow = { issue_commented: "low", issue_monitor_due: "low" };
+
+    async function runWith(root: string, input: {
+      config: Record<string, unknown>;
+      agentConfig: Record<string, unknown>;
+      wakeReason?: string;
+    }) {
+      let seenEnv: Record<string, string> = {};
+      let notes: string[] = [];
+      runProcessMock.mockImplementation(async (_runId, _target, _command, _args, options) => {
+        seenEnv = options.env;
+        return { exitCode: 0, signal: null, timedOut: false, stdout: KIMI_STDOUT, stderr: "" };
+      });
+      await execute(makeContext(root, {
+        agent: {
+          id: "agent-1",
+          companyId: "company-1",
+          name: "Kimi Agent",
+          adapterType: "kimi_local",
+          adapterConfig: input.agentConfig,
+        },
+        config: { cwd: root, ...input.config },
+        context: input.wakeReason ? { wakeReason: input.wakeReason } : {},
+        onMeta: async (meta) => {
+          notes = meta.commandNotes ?? [];
+        },
+      }));
+      return { seenEnv, notes };
+    }
+
+    it("uses effortByWakeReason over an env pin and logs the source", async () => {
+      const root = await makeTempRoot();
+      const agentConfig = {
+        model: "kimi-code/k3.1-pro",
+        effort: "high",
+        effortByWakeReason: housekeepingLow,
+        env: { KIMI_MODEL_THINKING_EFFORT: "high" },
+      };
+      const { seenEnv, notes } = await runWith(root, { config: agentConfig, agentConfig, wakeReason: "issue_commented" });
+
+      expect(seenEnv.KIMI_MODEL_THINKING_EFFORT).toBe("low");
+      expect(notes).toContain(
+        "Set KIMI_MODEL_THINKING_EFFORT=low for model kimi-code/k3.1-pro (source: effortByWakeReason[issue_commented]).",
+      );
+    });
+
+    it("keeps adapterConfig.effort for implementation wakes", async () => {
+      const root = await makeTempRoot();
+      const agentConfig = { model: "kimi-code/k3.1-pro", effort: "high", effortByWakeReason: housekeepingLow };
+      const { seenEnv, notes } = await runWith(root, { config: agentConfig, agentConfig, wakeReason: "issue_assigned" });
+
+      expect(seenEnv.KIMI_MODEL_THINKING_EFFORT).toBe("high");
+      expect(notes).toContain(
+        "Set KIMI_MODEL_THINKING_EFFORT=high for model kimi-code/k3.1-pro (source: adapterConfig.effort).",
+      );
+    });
+
+    it("never lets plain adapterConfig.effort clobber an env pin", async () => {
+      const root = await makeTempRoot();
+      const agentConfig = {
+        model: "kimi-code/k3.1-pro",
+        effort: "low",
+        effortByWakeReason: housekeepingLow,
+        env: { KIMI_MODEL_THINKING_EFFORT: "max" },
+      };
+      const { seenEnv, notes } = await runWith(root, { config: agentConfig, agentConfig, wakeReason: "issue_assigned" });
+
+      expect(seenEnv.KIMI_MODEL_THINKING_EFFORT).toBe("max");
+      expect(notes).toContain("Set KIMI_MODEL_THINKING_EFFORT=max for model kimi-code/k3.1-pro (source: env).");
+    });
+
+    it("lets a per-issue effort override beat effortByWakeReason", async () => {
+      const root = await makeTempRoot();
+      const agentConfig = {
+        model: "kimi-code/k3.1-pro",
+        effort: "high",
+        effortByWakeReason: housekeepingLow,
+        env: { KIMI_MODEL_THINKING_EFFORT: "high" },
+      };
+      const { seenEnv, notes } = await runWith(root, {
+        config: { ...agentConfig, effort: "max" },
+        agentConfig,
+        wakeReason: "issue_commented",
+      });
+
+      expect(seenEnv.KIMI_MODEL_THINKING_EFFORT).toBe("max");
+      expect(notes).toContain("Set KIMI_MODEL_THINKING_EFFORT=max for model kimi-code/k3.1-pro (source: issue override).");
+    });
+
+    it("does not change the model per wake reason", async () => {
+      const root = await makeTempRoot();
+      let seenArgs: string[] = [];
+      runProcessMock.mockImplementation(async (_runId, _target, _command, args) => {
+        seenArgs = args;
+        return { exitCode: 0, signal: null, timedOut: false, stdout: KIMI_STDOUT, stderr: "" };
+      });
+      const agentConfig = { model: "kimi-code/k3.1-pro", effort: "high", effortByWakeReason: housekeepingLow };
+      await execute(makeContext(root, {
+        agent: { id: "agent-1", companyId: "company-1", name: "Kimi Agent", adapterType: "kimi_local", adapterConfig: agentConfig },
+        config: { cwd: root, ...agentConfig },
+        context: { wakeReason: "issue_commented" },
+      }));
+
+      expect(seenArgs[seenArgs.indexOf("-m") + 1]).toBe("kimi-code/k3.1-pro");
+    });
+
+    it("notes and skips a selected effort for models without support_efforts", async () => {
+      const root = await makeTempRoot();
+      const agentConfig = { model: "kimi-code/kimi-for-coding-highspeed", effort: "high", effortByWakeReason: housekeepingLow };
+      const { seenEnv, notes } = await runWith(root, { config: agentConfig, agentConfig, wakeReason: "issue_commented" });
+
+      expect(seenEnv.KIMI_MODEL_THINKING_EFFORT).toBeUndefined();
+      expect(notes).toContain(
+        "Ignored thinking effort low (effortByWakeReason[issue_commented]): model kimi-code/kimi-for-coding-highspeed has no support_efforts.",
+      );
+    });
+  });
+
   it("adds --add-dir for the instructions directory and names sibling files in the prompt", async () => {
     const root = await makeTempRoot();
     const instructionsDir = path.join(root, "instructions");

@@ -49,7 +49,8 @@ import {
 import {
   SANDBOX_INSTALL_COMMAND,
   modelSupportsEffort,
-  resolveKimiThinkingEffort,
+  selectKimiThinkingEffort,
+  type KimiEffortSource,
 } from "../index.js";
 import {
   describeKimiFailure,
@@ -186,6 +187,12 @@ async function buildKimiSkillsDir(
   return target;
 }
 
+function describeKimiEffortSource(source: KimiEffortSource, wakeReason: string | null): string {
+  if (source === "issue_override") return "issue override";
+  if (source === "wake_reason") return `effortByWakeReason[${wakeReason}]`;
+  return "adapterConfig.effort";
+}
+
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const providerStop = createProviderStoppedBoundary(ctx.onProviderStopped);
   const engineSelection = await resolveKimiExecutionEngineForRun(ctx);
@@ -297,14 +304,27 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (!hasExplicitApiKey && authToken) {
     env.PAPERCLIP_API_KEY = authToken;
   }
-  // Forward configured thinking effort as KIMI_MODEL_THINKING_EFFORT. Kimi has
+  // Forward the selected thinking effort as KIMI_MODEL_THINKING_EFFORT. Kimi has
   // no per-invocation effort flag; this env var is an operational override that
   // applies to Kimi providers (managed OAuth models included). Only send it for
-  // models that advertise support_efforts, and never clobber an explicit value.
-  const configuredEffort = asString(config.effort, "").trim();
-  if (configuredEffort && modelSupportsEffort(model) && !hasNonEmptyEnvValue(env, "KIMI_MODEL_THINKING_EFFORT")) {
-    const kimiEffort = resolveKimiThinkingEffort(configuredEffort);
-    if (kimiEffort) env.KIMI_MODEL_THINKING_EFFORT = kimiEffort;
+  // models that advertise support_efforts. Plain adapterConfig.effort never
+  // clobbers an explicit env value; a per-issue override or a wake-reason match
+  // does, since both are narrower choices than an agent-wide env default.
+  const effortSelection = selectKimiThinkingEffort({
+    config,
+    agentConfig: parseObject(agent.adapterConfig),
+    wakeReason,
+  });
+  const effortSupported = modelSupportsEffort(model);
+  const envEffortPinned = hasNonEmptyEnvValue(env, "KIMI_MODEL_THINKING_EFFORT");
+  let effortNote: string | null = null;
+  if (effortSelection && !effortSupported) {
+    effortNote = `Ignored thinking effort ${effortSelection.effort} (${describeKimiEffortSource(effortSelection.source, wakeReason)}): model ${model || "(default)"} has no support_efforts.`;
+  } else if (effortSelection && (effortSelection.source !== "config" || !envEffortPinned)) {
+    env.KIMI_MODEL_THINKING_EFFORT = effortSelection.effort;
+    effortNote = `Set KIMI_MODEL_THINKING_EFFORT=${effortSelection.effort} for model ${model} (source: ${describeKimiEffortSource(effortSelection.source, wakeReason)}).`;
+  } else if (envEffortPinned) {
+    effortNote = `Set KIMI_MODEL_THINKING_EFFORT=${env.KIMI_MODEL_THINKING_EFFORT} for model ${model} (source: env).`;
   }
   const runtimeEnv = buildKimiRuntimeEnv(env);
   const billingType = resolveKimiBillingType(runtimeEnv);
@@ -478,9 +498,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const notes: string[] = ["Prompt is passed to Kimi via -p for non-interactive execution."];
     notes.push("Added --output-format stream-json for structured headless output.");
     notes.push("Set headless env (CI=1, NO_COLOR=1, KIMI_CODE_NO_AUTO_UPDATE=1) so unattended runs skip interactive prompts and update preflight.");
-    if (hasNonEmptyEnvValue(env, "KIMI_MODEL_THINKING_EFFORT")) {
-      notes.push(`Set KIMI_MODEL_THINKING_EFFORT=${env.KIMI_MODEL_THINKING_EFFORT} for model ${model}.`);
-    }
+    if (effortNote) notes.push(effortNote);
     const effectiveSkillsDir = executionTargetIsRemote ? remoteSkillsDir : localSkillsDir;
     if (effectiveSkillsDir) {
       notes.push(`Loading ${desiredKimiSkillNames.length} desired skill(s) via --skills-dir ${effectiveSkillsDir}.`);

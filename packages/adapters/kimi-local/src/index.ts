@@ -12,6 +12,8 @@ export const models = [
   { id: "kimi-code/kimi-for-coding-highspeed", label: "K2.7 Coding Highspeed" },
   { id: "kimi-code/k3", label: "K3" },
   { id: "kimi-code/k3-256k", label: "K3 (256K)" },
+  { id: "kimi-code/k3.1-pro", label: "K3.1 Pro" },
+  { id: "kimi-code/k3.1-pro-highspeed", label: "K3.1 Pro Highspeed (2x usage)" },
 ];
 
 /**
@@ -31,6 +33,8 @@ export const EFFORT_CAPABLE_MODELS = new Set<string>([
   DEFAULT_KIMI_LOCAL_MODEL,
   "kimi-code/k3",
   "kimi-code/k3-256k",
+  "kimi-code/k3.1-pro",
+  "kimi-code/k3.1-pro-highspeed",
 ]);
 
 export function modelSupportsEffort(model: string): boolean {
@@ -49,6 +53,51 @@ export function resolveKimiThinkingEffort(effort: string): KimiEffort | null {
   return (KIMI_SUPPORTED_EFFORTS as readonly string[]).includes(normalized)
     ? (normalized as KimiEffort)
     : null;
+}
+
+export type KimiEffortSource = "issue_override" | "wake_reason" | "config";
+
+export interface KimiEffortSelection {
+  effort: KimiEffort;
+  source: KimiEffortSource;
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Pick the thinking effort for one run. Precedence, highest first:
+ *   1. a per-issue override (assigneeAdapterOverrides.adapterConfig.effort);
+ *   2. effortByWakeReason[wakeReason];
+ *   3. adapterConfig.effort.
+ *
+ * The server shallow-merges the issue override into `config`, so an override
+ * is detected as a `config.effort` that differs from the agent's own stored
+ * `adapterConfig.effort`. Unsupported values at one level fall through to the
+ * next level instead of disabling effort control.
+ */
+export function selectKimiThinkingEffort(input: {
+  config: Record<string, unknown>;
+  agentConfig: Record<string, unknown>;
+  wakeReason: string | null;
+}): KimiEffortSelection | null {
+  const configEffort = trimmedString(input.config.effort);
+  const agentEffort = trimmedString(input.agentConfig.effort);
+  if (configEffort && configEffort !== agentEffort) {
+    const effort = resolveKimiThinkingEffort(configEffort);
+    if (effort) return { effort, source: "issue_override" };
+  }
+  const byWakeReason = input.config.effortByWakeReason;
+  if (input.wakeReason && typeof byWakeReason === "object" && byWakeReason !== null && !Array.isArray(byWakeReason)) {
+    const effort = resolveKimiThinkingEffort(trimmedString((byWakeReason as Record<string, unknown>)[input.wakeReason]));
+    if (effort) return { effort, source: "wake_reason" };
+  }
+  if (configEffort) {
+    const effort = resolveKimiThinkingEffort(configEffort);
+    if (effort) return { effort, source: "config" };
+  }
+  return null;
 }
 
 export const agentConfigurationDoc = `# kimi_local agent configuration
@@ -70,7 +119,8 @@ Core fields:
 - instructionsFilePath (string, optional): absolute path to a markdown instructions file prepended to the run prompt. Sibling files in the same directory (HEARTBEAT.md, SOUL.md, TOOLS.md) are made readable via --add-dir for local runs.
 - promptTemplate (string, optional): run prompt template
 - model (string, optional): Kimi model alias (provider/model). Defaults to kimi-code/kimi-for-coding.
-- effort (string, optional): thinking effort (low | medium | high | max). CLI lane only (engine=cli): forwarded as KIMI_MODEL_THINKING_EFFORT for effort-capable models (K2.8 Preview, K3, and K3 256K); "medium" maps to "high" since Kimi has no medium tier. Ignored for models without support_efforts, and NOT forwarded on the default ACP engine lane (Kimi ACP exposes a separate "thinking" option that is not wired yet) — pin engine=cli when effort control matters.
+- effort (string, optional): thinking effort (low | medium | high | max). CLI lane only (engine=cli): forwarded as KIMI_MODEL_THINKING_EFFORT for effort-capable models (K2.8 Preview, K3, K3 256K, K3.1 Pro, and K3.1 Pro Highspeed); "medium" maps to "high" since Kimi has no medium tier. Ignored for models without support_efforts, and NOT forwarded on the default ACP engine lane (Kimi ACP exposes a separate "thinking" option that is not wired yet) — pin engine=cli when effort control matters.
+- effortByWakeReason (object, optional): per-wake-reason effort, e.g. {"issue_commented": "low", "issue_monitor_due": "low"}. Same values and CLI-lane rules as effort. Precedence: a per-issue effort override (assigneeAdapterOverrides.adapterConfig.effort) > effortByWakeReason[wakeReason] > effort. A per-issue override or a wake-reason match replaces an explicit env KIMI_MODEL_THINKING_EFFORT; plain effort never does. The model is never switched per wake, so resumed sessions keep their prompt cache.
 - command (string, optional): defaults to "kimi"
 - extraArgs (string[], optional): additional CLI args
 - env (object, optional): KEY=VALUE environment variables
