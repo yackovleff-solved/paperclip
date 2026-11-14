@@ -1562,7 +1562,9 @@ export function routineService(
     // An open issue parked on a scheduled monitor (e.g. a provider-quota wait)
     // has no live run but is still pending work. Treating it as idle makes
     // skip_if_active/coalesce_if_active mint a fresh issue on every fire.
-    // Monitors clear monitorNextCheckAt when exhausted or on terminal status.
+    // Only count monitors the heartbeat tick can actually fire (same filter as
+    // tickDueIssueMonitors): a monitor left on a blocked or user-assigned issue
+    // is never fired or cleared and would otherwise suppress the routine forever.
     return executor
       .select()
       .from(issues)
@@ -1571,7 +1573,9 @@ export function routineService(
           eq(issues.companyId, routine.companyId),
           eq(issues.originKind, originKind),
           eq(issues.originId, originId),
-          inArray(issues.status, OPEN_ISSUE_STATUSES),
+          inArray(issues.status, ["in_progress", "in_review"]),
+          isNotNull(issues.assigneeAgentId),
+          isNull(issues.assigneeUserId),
           isNotNull(issues.monitorNextCheckAt),
           visibleIssueCondition(),
           ...(fingerprintCondition ? [fingerprintCondition] : []),

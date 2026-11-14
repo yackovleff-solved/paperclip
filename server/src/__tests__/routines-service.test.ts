@@ -1559,7 +1559,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
 
   async function seedMonitorParkedIssue(
     fixture: Awaited<ReturnType<typeof seedFixture>>,
-    input: { status: string; monitorNextCheckAt: Date | null },
+    input: { status: string; monitorNextCheckAt: Date | null; assigneeUserId?: string },
   ) {
     const { companyId, issueSvc, routine } = fixture;
     const previousRunId = randomUUID();
@@ -1588,7 +1588,11 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     // the issue is parked on a recovery monitor.
     await db
       .update(issues)
-      .set({ status: input.status, monitorNextCheckAt: input.monitorNextCheckAt })
+      .set({
+        status: input.status,
+        monitorNextCheckAt: input.monitorNextCheckAt,
+        ...(input.assigneeUserId ? { assigneeAgentId: null, assigneeUserId: input.assigneeUserId } : {}),
+      })
       .where(eq(issues.id, previousIssue.id));
     return previousIssue;
   }
@@ -1621,6 +1625,24 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     const { routine, svc } = fixture;
     await db.update(routines).set({ concurrencyPolicy: "skip_if_active" }).where(eq(routines.id, routine.id));
     const previousIssue = await seedMonitorParkedIssue(fixture, { status: "in_progress", monitorNextCheckAt: null });
+
+    const run = await svc.runRoutine(routine.id, { source: "manual" });
+
+    expect(run.status).toBe("issue_created");
+    expect(run.linkedIssueId).not.toBe(previousIssue.id);
+  });
+
+  it.each([
+    ["blocked", { status: "blocked" }],
+    ["user-assigned", { status: "in_progress", assigneeUserId: "user-sol-12558" }],
+  ] as const)("ignores a monitor the tick cannot fire (%s issue)", async (_label, override) => {
+    const fixture = await seedFixture();
+    const { routine, svc } = fixture;
+    await db.update(routines).set({ concurrencyPolicy: "skip_if_active" }).where(eq(routines.id, routine.id));
+    const previousIssue = await seedMonitorParkedIssue(fixture, {
+      monitorNextCheckAt: new Date("2026-03-20T12:15:00.000Z"),
+      ...override,
+    });
 
     const run = await svc.runRoutine(routine.id, { source: "manual" });
 
