@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
@@ -1555,6 +1555,92 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       includeRoutineExecutions: true,
     });
     expect(inboxIssues.map((issue) => issue.id)).toContain(previousIssue.id);
+  });
+
+  async function seedMonitorParkedIssue(
+    fixture: Awaited<ReturnType<typeof seedFixture>>,
+    input: { status: string; monitorNextCheckAt: Date | null },
+  ) {
+    const { companyId, issueSvc, routine } = fixture;
+    const previousRunId = randomUUID();
+    const previousIssue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "in_progress",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: previousRunId,
+    });
+    await db.insert(routineRuns).values({
+      id: previousRunId,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "manual",
+      status: "issue_created",
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: previousIssue.id,
+    });
+    // No live heartbeat run: the previous run failed (e.g. provider quota) and
+    // the issue is parked on a recovery monitor.
+    await db
+      .update(issues)
+      .set({ status: input.status, monitorNextCheckAt: input.monitorNextCheckAt })
+      .where(eq(issues.id, previousIssue.id));
+    return previousIssue;
+  }
+
+  it.each(["skip_if_active", "coalesce_if_active"] as const)(
+    "%s treats an open routine issue parked on a monitor as active",
+    async (concurrencyPolicy) => {
+      const fixture = await seedFixture();
+      const { companyId, routine, svc } = fixture;
+      await db.update(routines).set({ concurrencyPolicy }).where(eq(routines.id, routine.id));
+      const previousIssue = await seedMonitorParkedIssue(fixture, {
+        status: "in_progress",
+        monitorNextCheckAt: new Date("2026-03-20T12:15:00.000Z"),
+      });
+
+      const run = await svc.runRoutine(routine.id, { source: "manual" });
+
+      expect(run.status).toBe(concurrencyPolicy === "skip_if_active" ? "skipped" : "coalesced");
+      expect(run.linkedIssueId).toBe(previousIssue.id);
+      const routineIssues = await db
+        .select()
+        .from(issues)
+        .where(and(eq(issues.companyId, companyId), eq(issues.originId, routine.id)));
+      expect(routineIssues).toHaveLength(1);
+    },
+  );
+
+  it("creates a new issue when the open routine issue has no live run and no monitor", async () => {
+    const fixture = await seedFixture();
+    const { routine, svc } = fixture;
+    await db.update(routines).set({ concurrencyPolicy: "skip_if_active" }).where(eq(routines.id, routine.id));
+    const previousIssue = await seedMonitorParkedIssue(fixture, { status: "in_progress", monitorNextCheckAt: null });
+
+    const run = await svc.runRoutine(routine.id, { source: "manual" });
+
+    expect(run.status).toBe("issue_created");
+    expect(run.linkedIssueId).not.toBe(previousIssue.id);
+  });
+
+  it("ignores a stale monitor on a terminal routine issue", async () => {
+    const fixture = await seedFixture();
+    const { routine, svc } = fixture;
+    await db.update(routines).set({ concurrencyPolicy: "skip_if_active" }).where(eq(routines.id, routine.id));
+    const previousIssue = await seedMonitorParkedIssue(fixture, {
+      status: "done",
+      monitorNextCheckAt: new Date("2026-03-20T12:15:00.000Z"),
+    });
+
+    const run = await svc.runRoutine(routine.id, { source: "manual" });
+
+    expect(run.status).toBe("issue_created");
+    expect(run.linkedIssueId).not.toBe(previousIssue.id);
   });
 
   it("does not coalesce live routine runs with different resolved variables", async () => {
